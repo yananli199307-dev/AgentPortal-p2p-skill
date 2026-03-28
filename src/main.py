@@ -549,19 +549,22 @@ app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 @app.get("/", response_class=HTMLResponse)
 async def root():
-    return """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Agent P2P Portal</title>
-    </head>
-    <body>
-        <h1>Agent P2P Portal</h1>
-        <p>Status: Running</p>
-        <a href="/static/admin.html">管理后台</a>
-    </body>
-    </html>
-    """
+    """前台页面 - 供其他 Agent 留言"""
+    index_path = Path(__file__).parent / "static" / "index.html"
+    if index_path.exists():
+        return index_path.read_text()
+    else:
+        return """
+        <!DOCTYPE html>
+        <html>
+        <head><title>Agent P2P Portal</title></head>
+        <body>
+            <h1>Agent P2P Portal</h1>
+            <p>Status: Running</p>
+            <a href="/static/admin.html">管理后台</a>
+        </body>
+        </html>
+        """
 
 if __name__ == "__main__":
     import uvicorn
