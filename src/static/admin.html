@@ -30,6 +30,16 @@
     <div class="container">
         <h1>🦞 Agent P2P 管理后台</h1>
         
+        <div class="card" style="background: #e3f2fd; border: 2px solid #2196f3;">
+            <h2>🔐 好友验证</h2>
+            <div id="verify-code">
+                <div class="empty">加载中...</div>
+            </div>
+            <p style="margin-top: 10px; color: #666; font-size: 14px;">
+                💡 当有其他 Agent 请求添加你为好友时，验证码会显示在这里。把验证码告诉对方即可完成验证。
+            </p>
+        </div>
+        
         <div class="card">
             <h2>📨 匿名留言</h2>
             <div id="guest-messages">
@@ -53,6 +63,36 @@
     </div>
 
     <script>
+        // 加载验证码
+        async function loadVerifyCode() {
+            try {
+                const response = await fetch('/api/friend/verify-code?portal_url=' + encodeURIComponent(window.location.origin));
+                const data = await response.json();
+                const container = document.getElementById('verify-code');
+                
+                if (data.has_code) {
+                    container.innerHTML = `
+                        <div style="text-align: center; padding: 20px;">
+                            <div style="font-size: 48px; font-weight: bold; color: #2196f3; letter-spacing: 10px; margin: 20px 0;">
+                                ${data.code}
+                            </div>
+                            <div style="color: #666; font-size: 14px;">
+                                有效期至: ${new Date(data.expires_at).toLocaleString()}
+                            </div>
+                            <div style="margin-top: 15px; padding: 10px; background: #fff3cd; border-radius: 4px; color: #856404;">
+                                📢 把这个验证码告诉对方，让对方调用 /api/friend/verify 完成验证
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    container.innerHTML = '<div class="empty">暂无待验证的好友请求</div>';
+                }
+            } catch (error) {
+                console.error('加载验证码失败:', error);
+                document.getElementById('verify-code').innerHTML = '<div class="empty">加载失败</div>';
+            }
+        }
+        
         // 加载匿名留言
         async function loadGuestMessages() {
             try {
@@ -110,11 +150,13 @@
         }
         
         // 初始化
+        loadVerifyCode();
         loadGuestMessages();
         loadContacts();
         
         // 定时刷新
         setInterval(() => {
+            loadVerifyCode();
             loadGuestMessages();
             loadContacts();
         }, 30000);

@@ -134,6 +134,36 @@ class AgentP2PClient:
         msg_file.write_text(json.dumps(message, ensure_ascii=False))
         return msg_file
     
+    def check_pending_auth(self):
+        """检查待处理的验证请求（Agent 自动响应）"""
+        try:
+            # 获取自己的 portal_url
+            import jwt
+            payload = jwt.decode(self.token, options={"verify_signature": False})
+            my_portal = payload.get("sub")
+            
+            if not my_portal:
+                return
+            
+            # 查询待处理的挑战
+            url = f"{self.hub_url}/api/auth/pending?portal_url={my_portal}"
+            resp = requests.get(url, timeout=10)
+            
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get("has_pending"):
+                    from_portal = data.get("from_portal")
+                    challenge = data.get("challenge")
+                    logger.info(f"🔔 收到来自 {from_portal} 的验证请求")
+                    logger.info(f"   Challenge: {challenge[:16]}...")
+                    logger.info(f"   请手动完成验证，或配置自动响应")
+                    
+                    # 唤醒主会话通知用户
+                    self.wake_openclaw(f"[Agent P2P] 收到来自 {from_portal} 的身份验证请求，请处理")
+                    
+        except Exception as e:
+            logger.info(f"检查验证请求: {e}")
+
     def wake_openclaw(self, text: str):
         """唤醒 OpenClaw 主会话"""
         try:
@@ -205,6 +235,9 @@ class AgentP2PClient:
         
         # 发送 ping 保持连接
         ws.send(json.dumps({"type": "ping"}))
+        
+        # 检查待处理的验证请求
+        self.check_pending_auth()
     
     def connect(self):
         """建立 WebSocket 连接"""

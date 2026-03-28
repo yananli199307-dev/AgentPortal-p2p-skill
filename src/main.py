@@ -78,6 +78,19 @@ def init_db():
         )
     ''')
     
+    # 好友请求验证码表（简化验证流程）
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS verification_codes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            portal_url TEXT NOT NULL,
+            code TEXT NOT NULL,
+            status TEXT DEFAULT 'pending',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            expires_at TIMESTAMP NOT NULL,
+            verified_at TIMESTAMP
+        )
+    ''')
+    
     conn.commit()
     conn.close()
 
@@ -165,7 +178,8 @@ async def get_guest_messages():
 async def auth_initiate(request: AuthInitiateRequest):
     """发起身份验证"""
     challenge = generate_challenge()
-    expires_at = datetime.utcnow() + timedelta(minutes=10)
+    # 延长挑战有效期到 24 小时，给 Agent 足够时间响应
+    expires_at = datetime.utcnow() + timedelta(hours=24)
     
     conn = sqlite3.connect(DATABASE_PATH)
     cursor = conn.cursor()
@@ -221,6 +235,157 @@ async def auth_complete(request: AuthCompleteRequest):
     
     return {
         "status": "verified",
+        "your_token": token,
+        "expires_at": expires_at.isoformat()
+    }
+
+@app.get("/api/auth/pending")
+async def get_pending_challenges(portal_url: str):
+    """查询待处理的验证请求（用于 Agent 自动响应）"""
+    conn = sqlite3.connect(DATABASE_PATH)
+    cursor = conn.cursor()
+    
+    # 查找发给这个 Portal 的未过期挑战
+    cursor.execute('''
+        SELECT portal_url, challenge_code, expires_at, created_at
+        FROM challenges
+        WHERE portal_url = ? AND expires_at > ?
+        ORDER BY created_at DESC
+        LIMIT 1
+    ''', (portal_url, datetime.utcnow()))
+    
+    result = cursor.fetchone()
+    conn.close()
+    
+    if result:
+        return {
+            "has_pending": True,
+            "from_portal": result[0],
+            "challenge": result[1],
+            "expires_at": result[2],
+            "created_at": result[3]
+        }
+    else:
+        return {"has_pending": False}
+
+# ========== 简化验证流程（好友请求）==========
+
+class FriendRequest(BaseModel):
+    portal_url: str
+    message: str = "请求添加好友"
+
+class VerifyCodeRequest(BaseModel):
+    portal_url: str
+    code: str
+
+@app.post("/api/friend/request")
+async def create_friend_request(request: FriendRequest):
+    """
+    创建好友请求（简化流程）
+    
+    流程：
+    1. Agent A 在 Portal B 留言请求好友
+    2. Agent B 访问 Portal A 的管理后台
+    3. Portal A 生成验证码显示在页面上
+    4. Agent B 把验证码发给 Portal A 完成验证
+    """
+    # 生成 6 位数字验证码
+    code = ''.join([str(secrets.randbelow(10)) for _ in range(6)])
+    expires_at = datetime.utcnow() + timedelta(hours=24)
+    
+    conn = sqlite3.connect(DATABASE_PATH)
+    cursor = conn.cursor()
+    
+    # 保存验证码
+    cursor.execute('''
+        INSERT INTO verification_codes (portal_url, code, expires_at)
+        VALUES (?, ?, ?)
+    ''', (request.portal_url, code, expires_at))
+    
+    conn.commit()
+    conn.close()
+    
+    return {
+        "status": "created",
+        "code": code,
+        "expires_at": expires_at.isoformat(),
+        "message": f"请在管理后台查看验证码 {code}，并告诉对方"
+    }
+
+@app.get("/api/friend/verify-code")
+async def get_verify_code(portal_url: str):
+    """查询待验证的验证码（用于管理后台显示）"""
+    conn = sqlite3.connect(DATABASE_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT code, status, created_at, expires_at
+        FROM verification_codes
+        WHERE portal_url = ? AND status = 'pending' AND expires_at > ?
+        ORDER BY created_at DESC
+        LIMIT 1
+    ''', (portal_url, datetime.utcnow()))
+    
+    result = cursor.fetchone()
+    conn.close()
+    
+    if result:
+        return {
+            "has_code": True,
+            "code": result[0],
+            "status": result[1],
+            "created_at": result[2],
+            "expires_at": result[3]
+        }
+    else:
+        return {"has_code": False}
+
+@app.post("/api/friend/verify")
+async def verify_friend_code(request: VerifyCodeRequest):
+    """
+    验证好友验证码，完成信任建立
+    
+    Agent B 把从 Portal A 看到的验证码发给 Portal A
+    Portal A 验证成功后，给 Agent B 发放 Token
+    """
+    conn = sqlite3.connect(DATABASE_PATH)
+    cursor = conn.cursor()
+    
+    # 查找验证码
+    cursor.execute('''
+        SELECT id, code, status FROM verification_codes
+        WHERE portal_url = ? AND code = ? AND status = 'pending' AND expires_at > ?
+    ''', (request.portal_url, request.code, datetime.utcnow()))
+    
+    result = cursor.fetchone()
+    
+    if not result:
+        conn.close()
+        raise HTTPException(status_code=400, detail="验证码无效或已过期")
+    
+    # 标记验证码为已使用
+    cursor.execute('''
+        UPDATE verification_codes
+        SET status = 'verified', verified_at = ?
+        WHERE id = ?
+    ''', (datetime.utcnow(), result[0]))
+    
+    # 生成 Token 给对方
+    token = create_token(request.portal_url)
+    expires_at = datetime.utcnow() + timedelta(days=TOKEN_EXPIRE_DAYS)
+    
+    # 保存联系人
+    cursor.execute('''
+        INSERT OR REPLACE INTO contacts (portal_url, token, their_token, expires_at)
+        VALUES (?, ?, ?, ?)
+    ''', (request.portal_url, token, "pending", expires_at))
+    
+    conn.commit()
+    conn.close()
+    
+    return {
+        "status": "verified",
+        "message": "好友验证成功",
         "your_token": token,
         "expires_at": expires_at.isoformat()
     }
