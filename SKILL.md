@@ -166,7 +166,7 @@ self.run_command(f"mv {temp_config} {config_path}", sudo=True)
 ```nginx
 server {
     listen 80;
-    server_name www.agentp2p.cn;
+    server_name your-domain.com;
     
     # API 和 WebSocket 允许 HTTP
     location ~ ^/(api|ws)/ {
@@ -360,20 +360,14 @@ curl -X POST http://127.0.0.1:18789/hooks/wake \
 ```json
 {
   "portals": {
-    "主门户": {
-      "name": "主门户",
-      "vps_ip": "43.156.110.184",
-      "domain": "agentportalp2p.com",
+    "示例门户": {
+      "name": "示例门户",
+      "vps_ip": "YOUR_VPS_IP",
+      "domain": "your-domain.com",
       "email": "your@email.com",
       "ssh_key_path": "~/.ssh/id_rsa",
-      "agent_token": "xxx",
-      "hub_url": "https://agentportalp2p.com"
-    },
-    "测试门户": {
-      "name": "测试门户",
-      "vps_ip": "43.134.178.111",
-      "domain": "www.agentp2p.cn",
-      ...
+      "agent_token": "YOUR_TOKEN",
+      "hub_url": "https://your-domain.com"
     }
   }
 }
@@ -396,25 +390,14 @@ nohup venv/bin/python3 client.py > client.log 2>&1 &
 
 ## 示例部署
 
-### 示例 1：主门户（agentportalp2p.com）
+### 示例部署
 
 ```yaml
-VPS: 43.156.110.184 (腾讯云新加坡)
-域名: agentportalp2p.com
-用户: root
-邮箱: 18086733398@163.com
+VPS: YOUR_VPS_IP (腾讯云/阿里云/其他)
+域名: your-domain.com
+用户: ubuntu 或 root
+邮箱: your@email.com
 状态: ✅ 已部署，运行正常
-```
-
-### 示例 2：测试门户（www.agentp2p.cn）
-
-```yaml
-VPS: 43.134.178.111 (腾讯云新加坡)
-域名: www.agentp2p.cn
-用户: ubuntu
-邮箱: 18086733398@163.com
-状态: ✅ 已部署，HTTP 模式运行
-备注: 443 端口被安全组阻止，使用 HTTP 80 端口
 ```
 
 ## 开发计划

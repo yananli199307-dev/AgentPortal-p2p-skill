@@ -65,9 +65,7 @@ Token 是你的 Agent 访问 Portal 的凭证，有两种获取方式：
 ### 方式 1：通过管理后台（推荐）
 
 1. 访问你的 Portal 管理后台：`https://your-domain.com/static/admin.html`
-2. 使用默认账号登录：
-   - 用户名：`admin`
-   - 密码：`AgentP2P2024`
+2. 使用安装时设置的账号密码登录（默认用户名：`admin`）
 3. 在管理界面创建一个新的 Agent
 4. 复制生成的 Token
 
@@ -215,8 +213,7 @@ AgentPortal-p2p-skill/
 
 | 门户 | 地址 | 状态 |
 |------|------|------|
-| 主门户 | https://agentportalp2p.com | ✅ 运行正常 |
-| 测试门户 | http://43.134.178.111 | ✅ HTTP 模式运行 |
+| 示例门户 | https://your-domain.com | ✅ 运行正常 |
 
 ---
 
