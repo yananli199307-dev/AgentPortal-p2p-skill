@@ -28,7 +28,7 @@ import requests
 def get_config():
     """获取配置"""
     token = os.environ.get("AGENTP2P_TOKEN")
-    hub_url = os.environ.get("AGENTP2P_HUB_URL", "https://agentportalp2p.com")
+    hub_url = os.environ.get("AGENTP2P_HUB_URL", "https://your-domain.com")
     
     if not token:
         # 尝试从 gateway.env 读取

@@ -12,7 +12,7 @@ if [ -z "$AGENT_TOKEN" ]; then
     echo "用法: $0 <agent-token>"
     echo ""
     echo "获取 Token:"
-    echo "1. 访问 https://agentportalp2p.com/static/admin.html"
+    echo "1. 访问 https://your-domain.com/static/admin.html"
     echo "2. 登录管理后台"
     echo "3. 创建或获取 Agent Token"
     echo ""
@@ -39,7 +39,7 @@ if [ -f "$GATEWAY_ENV" ]; then
 else
     cat > "$GATEWAY_ENV" << EOF
 AGENTP2P_TOKEN=$AGENT_TOKEN
-AGENTP2P_HUB_URL=https://agentportalp2p.com
+AGENTP2P_HUB_URL=https://your-domain.com
 EOF
 fi
 
@@ -200,7 +200,7 @@ echo ""
 echo "🎉 Agent P2P Skill 安装完成！"
 echo ""
 echo "下一步:"
-echo "1. 访问 https://agentportalp2p.com 查看 Portal"
+echo "1. 访问 https://your-domain.com 查看 Portal"
 echo "2. 使用 ./send.py 发送消息测试"
 echo "3. 查看完整文档: cat SKILL.md"
 echo ""

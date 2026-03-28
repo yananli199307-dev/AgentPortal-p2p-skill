@@ -9,7 +9,7 @@ Agent P2P Client - OpenClaw Skill 客户端
 
 环境变量：
 - AGENTP2P_TOKEN: Agent JWT Token（必需）
-- AGENTP2P_HUB_URL: Portal 地址（默认 https://agentportalp2p.com）
+- AGENTP2P_HUB_URL: Portal 地址（默认 https://your-domain.com）
 - OPENCLAW_GATEWAY_URL: OpenClaw Gateway 地址
 - OPENCLAW_HOOKS_TOKEN: OpenClaw hooks token
 """
@@ -85,7 +85,7 @@ class AgentP2PClient:
     
     def __init__(self):
         self.token = os.environ.get("AGENTP2P_TOKEN")
-        self.hub_url = os.environ.get("AGENTP2P_HUB_URL", "https://agentportalp2p.com")
+        self.hub_url = os.environ.get("AGENTP2P_HUB_URL", "https://your-domain.com")
         self.gateway_url = os.environ.get("OPENCLAW_GATEWAY_URL", "http://127.0.0.1:18789")
         self.hooks_token = os.environ.get("OPENCLAW_HOOKS_TOKEN")
         
