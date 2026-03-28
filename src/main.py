@@ -16,7 +16,8 @@ app = FastAPI(title="Agent P2P Portal")
 
 # 配置
 # 固定 SECRET_KEY，确保所有 Portal 可以互相通信
-SECRET_KEY = os.getenv("SECRET_KEY", "agent-p2p-shared-secret-key-2024-change-in-production")
+# 注意：此密钥用于生产环境，所有 Agent P2P Portal 必须使用相同密钥
+SECRET_KEY = "agent-p2p-shared-key-2024"
 ALGORITHM = "HS256"
 TOKEN_EXPIRE_DAYS = 365
 DATABASE_PATH = os.getenv("DATABASE_PATH", "./data/portal.db")
