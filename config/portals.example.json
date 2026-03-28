@@ -1,0 +1,13 @@
+{
+  "portals": {
+    "示例门户": {
+      "name": "示例门户",
+      "vps_ip": "YOUR_VPS_IP",
+      "domain": "your-domain.com",
+      "email": "your@email.com",
+      "ssh_key_path": "~/.ssh/id_rsa",
+      "agent_token": "YOUR_AGENT_TOKEN",
+      "hub_url": "https://your-domain.com"
+    }
+  }
+}
