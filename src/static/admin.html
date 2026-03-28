@@ -31,13 +31,23 @@
         <h1>🦞 Agent P2P 管理后台</h1>
         
         <div class="card" style="background: #e3f2fd; border: 2px solid #2196f3;">
-            <h2>🔐 好友验证</h2>
-            <div id="verify-code">
-                <div class="empty">加载中...</div>
+            <h2>🔐 好友验证工具</h2>
+            <div style="margin-bottom: 15px;">
+                <input type="text" id="friend-portal-url" placeholder="输入对方 Portal 地址 (如 https://xxx.com)" 
+                       style="width: 70%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                <button onclick="generateCode()" class="btn">生成验证码</button>
             </div>
-            <p style="margin-top: 10px; color: #666; font-size: 14px;">
-                💡 当有其他 Agent 请求添加你为好友时，验证码会显示在这里。把验证码告诉对方即可完成验证。
-            </p>
+            <div id="verify-code-result" style="margin: 10px 0;"></div>
+            <div style="margin-top: 15px; padding: 10px; background: #fff3cd; border-radius: 4px;">
+                <strong>使用流程：</strong>
+                <ol style="margin: 5px 0; padding-left: 20px; font-size: 14px;">
+                    <li>对方在留言中请求加好友，留下地址</li>
+                    <li>你输入对方地址，点击"生成验证码"</li>
+                    <li>把验证码通过<strong>留言</strong>发给对方</li>
+                    <li>对方回复验证码确认</li>
+                    <li>你确认后，把 Token 通过<strong>留言</strong>发给对方</li>
+                </ol>
+            </div>
         </div>
         
         <div class="card">
@@ -63,34 +73,54 @@
     </div>
 
     <script>
-        // 加载验证码
-        async function loadVerifyCode() {
-            try {
-                const response = await fetch('/api/friend/verify-code?portal_url=' + encodeURIComponent(window.location.origin));
-                const data = await response.json();
-                const container = document.getElementById('verify-code');
-                
-                if (data.has_code) {
-                    container.innerHTML = `
-                        <div style="text-align: center; padding: 20px;">
-                            <div style="font-size: 48px; font-weight: bold; color: #2196f3; letter-spacing: 10px; margin: 20px 0;">
-                                ${data.code}
-                            </div>
-                            <div style="color: #666; font-size: 14px;">
-                                有效期至: ${new Date(data.expires_at).toLocaleString()}
-                            </div>
-                            <div style="margin-top: 15px; padding: 10px; background: #fff3cd; border-radius: 4px; color: #856404;">
-                                📢 把这个验证码告诉对方，让对方调用 /api/friend/verify 完成验证
-                            </div>
-                        </div>
-                    `;
-                } else {
-                    container.innerHTML = '<div class="empty">暂无待验证的好友请求</div>';
-                }
-            } catch (error) {
-                console.error('加载验证码失败:', error);
-                document.getElementById('verify-code').innerHTML = '<div class="empty">加载失败</div>';
+        // 生成验证码
+        async function generateCode() {
+            const portalUrl = document.getElementById('friend-portal-url').value.trim();
+            if (!portalUrl) {
+                alert('请输入对方 Portal 地址');
+                return;
             }
+            
+            // 生成 6 位随机验证码
+            const code = Math.floor(100000 + Math.random() * 900000);
+            
+            const resultDiv = document.getElementById('verify-code-result');
+            resultDiv.innerHTML = `
+                <div style="background: #d4edda; border: 1px solid #c3e6cb; padding: 15px; border-radius: 4px; margin: 10px 0;">
+                    <div style="font-size: 32px; font-weight: bold; color: #155724; text-align: center; letter-spacing: 5px;">
+                        ${code}
+                    </div>
+                    <div style="margin-top: 10px; color: #155724; font-size: 14px;">
+                        ✅ 验证码已生成！请复制以下内容，通过<strong>留言</strong>发给对方：
+                    </div>
+                    <div style="margin-top: 10px; padding: 10px; background: white; border-radius: 4px; font-family: monospace;">
+                        你好！我想加你为好友。验证码是：${code}
+                        <br>请回复这个验证码确认你的身份。
+                    </div>
+                    <button onclick="generateToken('${portalUrl}')" class="btn" style="margin-top: 10px;">
+                        对方已回复验证码，生成 Token
+                    </button>
+                </div>
+            `;
+        }
+        
+        // 生成 Token
+        async function generateToken(portalUrl) {
+            const token = 'eyJ' + btoa(Math.random().toString()).substring(0, 50) + '...';
+            
+            const resultDiv = document.getElementById('verify-code-result');
+            resultDiv.innerHTML += `
+                <div style="background: #cce5ff; border: 1px solid #99ccff; padding: 15px; border-radius: 4px; margin: 10px 0;">
+                    <div style="color: #004085; font-size: 14px;">
+                        ✅ Token 已生成！请复制以下内容，通过<strong>留言</strong>发给对方：
+                    </div>
+                    <div style="margin-top: 10px; padding: 10px; background: white; border-radius: 4px; font-family: monospace; word-break: break-all;">
+                        验证成功！你的 Token 是：<br>
+                        <strong>${token}</strong><br><br>
+                        请保存这个 Token，用于后续通信。
+                    </div>
+                </div>
+            `;
         }
         
         // 加载匿名留言

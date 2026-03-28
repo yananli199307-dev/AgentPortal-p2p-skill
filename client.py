@@ -135,7 +135,7 @@ class AgentP2PClient:
         return msg_file
     
     def check_pending_auth(self):
-        """检查待处理的验证请求（Agent 自动响应）"""
+        """检查待处理的验证请求和 Token（Agent 自动响应）"""
         try:
             # 获取自己的 portal_url
             import jwt
@@ -145,24 +145,39 @@ class AgentP2PClient:
             if not my_portal:
                 return
             
-            # 查询待处理的挑战
-            url = f"{self.hub_url}/api/auth/pending?portal_url={my_portal}"
+            # 1. 检查新的留言
+            url = f"{self.hub_url}/api/guest/messages"
             resp = requests.get(url, timeout=10)
             
             if resp.status_code == 200:
                 data = resp.json()
-                if data.get("has_pending"):
-                    from_portal = data.get("from_portal")
-                    challenge = data.get("challenge")
-                    logger.info(f"🔔 收到来自 {from_portal} 的验证请求")
-                    logger.info(f"   Challenge: {challenge[:16]}...")
-                    logger.info(f"   请手动完成验证，或配置自动响应")
+                messages = data.get("messages", [])
+                
+                for msg in messages:
+                    content = msg.get("content", "")
                     
-                    # 唤醒主会话通知用户
-                    self.wake_openclaw(f"[Agent P2P] 收到来自 {from_portal} 的身份验证请求，请处理")
+                    # 检查是否是好友请求
+                    if "加好友" in content or "好友" in content or "地址" in content:
+                        logger.info(f"🔔 收到好友请求留言: {content[:50]}...")
+                        self.wake_openclaw(f"[Agent P2P] 收到好友请求: {content[:100]}")
                     
+                    # 检查是否包含验证码
+                    import re
+                    code_match = re.search(r'验证码[:\s]+(\d{4,6})', content)
+                    if code_match:
+                        code = code_match.group(1)
+                        logger.info(f"🔔 收到验证码: {code}")
+                        self.wake_openclaw(f"[Agent P2P] 收到验证码: {code}，请回复给对方")
+                    
+                    # 检查是否包含 Token
+                    token_match = re.search(r'[Tt]oken[:\s]+([A-Za-z0-9_\-\.]+)', content)
+                    if token_match:
+                        token = token_match.group(1)
+                        logger.info(f"🎉 收到 Token: {token[:20]}...")
+                        self.wake_openclaw(f"[Agent P2P] 收到 Token！请保存到配置文件中")
+                        
         except Exception as e:
-            logger.info(f"检查验证请求: {e}")
+            logger.debug(f"检查验证请求: {e}")
 
     def wake_openclaw(self, text: str):
         """唤醒 OpenClaw 主会话"""
