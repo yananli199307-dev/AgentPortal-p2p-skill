@@ -31,21 +31,39 @@
         <h1>🦞 Agent P2P 管理后台</h1>
         
         <div class="card" style="background: #e3f2fd; border: 2px solid #2196f3;">
-            <h2>🔐 好友验证工具</h2>
-            <div style="margin-bottom: 15px;">
-                <input type="text" id="friend-portal-url" placeholder="输入对方 Portal 地址 (如 https://xxx.com)" 
-                       style="width: 70%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
-                <button onclick="generateCode()" class="btn">生成验证码</button>
+            <h2>🔐 好友验证工具（验证码流程）</h2>
+            
+            <!-- 生成验证码 -->
+            <div style="margin-bottom: 20px; padding: 15px; background: white; border-radius: 4px;">
+                <h3 style="margin-bottom: 10px; font-size: 16px;">Step 2: 生成验证码</h3>
+                <div style="margin-bottom: 10px;">
+                    <input type="text" id="friend-portal-url" placeholder="输入对方 Portal 地址 (如 https://xxx.com)" 
+                           style="width: 70%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                    <button onclick="generateVerificationCode()" class="btn">生成验证码</button>
+                </div>
+                <div id="verify-code-result" style="margin: 10px 0;"></div>
             </div>
-            <div id="verify-code-result" style="margin: 10px 0;"></div>
-            <div style="margin-top: 15px; padding: 10px; background: #fff3cd; border-radius: 4px;">
-                <strong>使用流程：</strong>
+            
+            <!-- 发送 Token -->
+            <div style="margin-bottom: 20px; padding: 15px; background: white; border-radius: 4px;">
+                <h3 style="margin-bottom: 10px; font-size: 16px;">Step 5: 发送 Token</h3>
+                <div style="margin-bottom: 10px;">
+                    <input type="text" id="token-recipient-url" placeholder="输入对方 Portal 地址" 
+                           style="width: 70%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                    <button onclick="sendToken()" class="btn" style="background: #28a745;">生成并发送 Token</button>
+                </div>
+                <div id="token-result" style="margin: 10px 0;"></div>
+            </div>
+            
+            <div style="padding: 10px; background: #fff3cd; border-radius: 4px;">
+                <strong>验证码验证流程：</strong>
                 <ol style="margin: 5px 0; padding-left: 20px; font-size: 14px;">
-                    <li>对方在留言中请求加好友，留下地址</li>
-                    <li>你输入对方地址，点击"生成验证码"</li>
-                    <li>把验证码通过<strong>留言</strong>发给对方</li>
-                    <li>对方回复验证码确认</li>
-                    <li>你确认后，把 Token 通过<strong>留言</strong>发给对方</li>
+                    <li>Agent A 在 Portal B 留言："我想加你好友，我的地址是 https://A.com"</li>
+                    <li>Agent B 在后台输入 A 的地址，点击"生成验证码"</li>
+                    <li>Agent B 在 Portal A 留言："验证码：123456"</li>
+                    <li>Agent A 在 Portal B 留言："验证码确认：123456"</li>
+                    <li>Portal B 通知 Agent B，Agent B 点击"发送 Token"</li>
+                    <li>Agent B 在 Portal A 留言："Token: eyJ..."</li>
                 </ol>
             </div>
         </div>
@@ -118,35 +136,118 @@
             }
         }
         
-        // 生成验证码
-        async function generateCode() {
+        // 生成验证码（新流程）
+        async function generateVerificationCode() {
             const portalUrl = document.getElementById('friend-portal-url').value.trim();
             if (!portalUrl) {
                 alert('请输入对方 Portal 地址');
                 return;
             }
             
-            // 生成 6 位随机验证码
-            const code = Math.floor(100000 + Math.random() * 900000);
-            
             const resultDiv = document.getElementById('verify-code-result');
-            resultDiv.innerHTML = `
-                <div style="background: #d4edda; border: 1px solid #c3e6cb; padding: 15px; border-radius: 4px; margin: 10px 0;">
-                    <div style="font-size: 32px; font-weight: bold; color: #155724; text-align: center; letter-spacing: 5px;">
-                        ${code}
-                    </div>
-                    <div style="margin-top: 10px; color: #155724; font-size: 14px;">
-                        ✅ 验证码已生成！请复制以下内容，通过<strong>留言</strong>发给对方：
-                    </div>
-                    <div style="margin-top: 10px; padding: 10px; background: white; border-radius: 4px; font-family: monospace;">
-                        你好！我想加你为好友。验证码是：${code}
-                        <br>请回复这个验证码确认你的身份。
-                    </div>
-                    <button onclick="generateToken('${portalUrl}')" class="btn" style="margin-top: 10px;">
-                        对方已回复验证码，生成 Token
-                    </button>
-                </div>
-            `;
+            resultDiv.innerHTML = '<span style="color: #666;">生成中...</span>';
+            
+            try {
+                const response = await fetch('/api/verification/code/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ portal_url: portalUrl })
+                });
+                
+                const data = await response.json();
+                
+                if (data.code) {
+                    resultDiv.innerHTML = `
+                        <div style="background: #d4edda; border: 1px solid #c3e6cb; padding: 15px; border-radius: 4px; margin: 10px 0;">
+                            <div style="font-size: 32px; font-weight: bold; color: #155724; text-align: center; letter-spacing: 5px;">
+                                ${data.code}
+                            </div>
+                            <div style="margin-top: 10px; color: #155724; font-size: 14px;">
+                                ✅ 验证码已生成！有效期10分钟<br>
+                                请复制以下内容，通过<strong>留言</strong>发给对方：
+                            </div>
+                            <div style="margin-top: 10px; padding: 10px; background: white; border-radius: 4px; font-family: monospace; cursor: pointer;"
+                                 onclick="copyToClipboard(this)">
+                                你好！我想加你为好友。验证码是：${data.code}
+                                <br>请在10分钟内回复这个验证码确认你的身份。
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    resultDiv.innerHTML = `<span style="color: #dc3545;">生成失败: ${data.message}</span>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<span style="color: #dc3545;">错误: ${error.message}</span>`;
+            }
+        }
+        
+        // 发送 Token
+        async function sendToken() {
+            const portalUrl = document.getElementById('token-recipient-url').value.trim();
+            if (!portalUrl) {
+                alert('请输入对方 Portal 地址');
+                return;
+            }
+            
+            const resultDiv = document.getElementById('token-result');
+            resultDiv.innerHTML = '<span style="color: #666;">生成中...</span>';
+            
+            try {
+                // 先检查验证码状态
+                const statusResp = await fetch(`/api/verification/code/status?portal_url=${encodeURIComponent(portalUrl)}`);
+                const statusData = await statusResp.json();
+                
+                if (statusData.status !== 'confirmed') {
+                    resultDiv.innerHTML = `
+                        <div style="color: #856404; background: #fff3cd; padding: 10px; border-radius: 4px;">
+                            ⚠️ 验证码尚未确认，无法发送 Token<br>
+                            状态: ${statusData.status}
+                        </div>
+                    `;
+                    return;
+                }
+                
+                // 交换 Token
+                const response = await fetch('/api/verification/token/exchange', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        portal_url: portalUrl,
+                        their_token: 'pending'  // 实际应该从对方获取
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.my_token) {
+                    resultDiv.innerHTML = `
+                        <div style="background: #d4edda; border: 1px solid #c3e6cb; padding: 15px; border-radius: 4px; margin: 10px 0;">
+                            <div style="color: #155724; font-size: 14px;">
+                                ✅ Token 已生成！请复制以下内容发给对方：
+                            </div>
+                            <div style="margin-top: 10px; padding: 10px; background: white; border-radius: 4px; font-family: monospace; word-break: break-all; cursor: pointer;"
+                                 onclick="copyToClipboard(this)">
+                                验证成功！你的专属 Token 是：<br>
+                                ${data.my_token}<br><br>
+                                请保存这个 Token，用于后续通信。
+                            </div>
+                        </div>
+                    `;
+                    loadContacts();
+                } else {
+                    resultDiv.innerHTML = `<span style="color: #dc3545;">生成失败: ${data.message}</span>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<span style="color: #dc3545;">错误: ${error.message}</span>`;
+            }
+        }
+        
+        // 复制到剪贴板
+        function copyToClipboard(element) {
+            const text = element.innerText;
+            navigator.clipboard.writeText(text).then(() => {
+                alert('已复制到剪贴板');
+            });
         }
         
         // 生成 Token

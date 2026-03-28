@@ -139,6 +139,7 @@ class AgentP2PClient:
         try:
             # 获取自己的 portal_url
             import jwt
+            import re
             payload = jwt.decode(self.token, options={"verify_signature": False})
             my_portal = payload.get("sub")
             
@@ -156,28 +157,93 @@ class AgentP2PClient:
                 for msg in messages:
                     content = msg.get("content", "")
                     
-                    # 检查是否是好友请求
-                    if "加好友" in content or "好友" in content or "地址" in content:
-                        logger.info(f"🔔 收到好友请求留言: {content[:50]}...")
-                        self.wake_openclaw(f"[Agent P2P] 收到好友请求: {content[:100]}")
+                    # 检查是否是好友请求（包含 Portal 地址）
+                    if any(kw in content for kw in ["加好友", "好友", "P2P", "连接", "Portal", "portal"]):
+                        # 提取 Portal 地址
+                        url_match = re.search(r'https?://[^\s\n]+', content)
+                        if url_match:
+                            portal_url = url_match.group(0)
+                            logger.info(f"🔔 收到好友请求: {portal_url}")
+                            self.wake_openclaw(
+                                f"[Agent P2P] 收到好友请求！\n"
+                                f"来自: {portal_url}\n"
+                                f"请访问管理后台处理: {self.hub_url}/static/admin.html"
+                            )
                     
-                    # 检查是否包含验证码
-                    import re
-                    code_match = re.search(r'验证码[:\s]+(\d{4,6})', content)
+                    # 检查是否包含验证码（Step 2）
+                    code_match = re.search(r'验证码[：:]\s*(\d{6})', content)
                     if code_match:
                         code = code_match.group(1)
-                        logger.info(f"🔔 收到验证码: {code}")
-                        self.wake_openclaw(f"[Agent P2P] 收到验证码: {code}，请回复给对方")
+                        logger.info(f"🔢 收到验证码: {code}")
+                        
+                        # 自动确认验证码（Step 3）
+                        self._confirm_verification_code(code)
                     
-                    # 检查是否包含 Token
-                    token_match = re.search(r'[Tt]oken[:\s]+([A-Za-z0-9_\-\.]+)', content)
+                    # 检查是否包含 Token（Step 5）
+                    token_match = re.search(r'[Tt]oken[：:]\s*(eyJ[A-Za-z0-9_\-\.]+)', content)
                     if token_match:
                         token = token_match.group(1)
-                        logger.info(f"🎉 收到 Token: {token[:20]}...")
-                        self.wake_openclaw(f"[Agent P2P] 收到 Token！请保存到配置文件中")
+                        logger.info(f"🎉 收到 Token: {token[:30]}...")
+                        self.wake_openclaw(
+                            f"[Agent P2P] 🎉 收到 Token！\n"
+                            f"Token: {token[:50]}...\n"
+                            f"请保存到配置文件中"
+                        )
                         
         except Exception as e:
             logger.debug(f"检查验证请求: {e}")
+    
+    def _confirm_verification_code(self, code: str):
+        """自动确认验证码（Step 3）"""
+        try:
+            # 从留言中提取对方 Portal 地址
+            url = f"{self.hub_url}/api/guest/messages"
+            resp = requests.get(url, timeout=10)
+            
+            if resp.status_code != 200:
+                return
+            
+            data = resp.json()
+            messages = data.get("messages", [])
+            
+            # 找到最新的包含验证码的留言，提取发送者
+            for msg in messages:
+                content = msg.get("content", "")
+                import re
+                
+                # 检查是否包含验证码
+                if re.search(r'验证码[：:]\s*' + code, content):
+                    # 尝试从同一条或上一条留言中提取 Portal 地址
+                    portal_match = re.search(r'https?://[^\s\n]+', content)
+                    if not portal_match:
+                        # 从上一条留言找
+                        idx = messages.index(msg)
+                        if idx > 0:
+                            portal_match = re.search(r'https?://[^\s\n]+', messages[idx-1].get("content", ""))
+                    
+                    if portal_match:
+                        portal_url = portal_match.group(0)
+                        
+                        # 调用确认验证码 API
+                        confirm_url = f"{portal_url}/api/verification/code/confirm"
+                        confirm_resp = requests.post(confirm_url, json={
+                            "portal_url": self.hub_url,
+                            "code": code
+                        }, timeout=10)
+                        
+                        if confirm_resp.status_code == 200:
+                            logger.info(f"✅ 验证码 {code} 已自动确认")
+                            self.wake_openclaw(
+                                f"[Agent P2P] 验证码 {code} 已自动确认！\n"
+                                f"等待对方发送 Token..."
+                            )
+                        else:
+                            logger.warning(f"验证码确认失败: {confirm_resp.status_code}")
+                        
+                        break
+                        
+        except Exception as e:
+            logger.debug(f"自动确认验证码失败: {e}")
 
     def wake_openclaw(self, text: str):
         """唤醒 OpenClaw 主会话"""

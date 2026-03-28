@@ -117,6 +117,26 @@ class SendMessageRequest(BaseModel):
 class TokenData(BaseModel):
     portal_url: Optional[str] = None
 
+# ========== 简化验证码验证流程 ==========
+
+class VerificationCodeRequest(BaseModel):
+    """生成验证码请求"""
+    portal_url: str
+
+class VerificationCodeConfirm(BaseModel):
+    """确认验证码请求"""
+    portal_url: str
+    code: str
+
+class VerificationTokenExchange(BaseModel):
+    """交换 Token"""
+    portal_url: str
+    their_token: str
+
+def generate_verification_code() -> str:
+    """生成6位数字验证码"""
+    return ''.join([str(secrets.randbelow(10)) for _ in range(6)])
+
 # 工具函数
 def create_token(portal_url: str) -> str:
     expire = datetime.utcnow() + timedelta(days=TOKEN_EXPIRE_DAYS)
@@ -268,7 +288,149 @@ async def get_pending_challenges(portal_url: str):
     else:
         return {"has_pending": False}
 
-# ========== 简化验证流程（完全通过留言）==========
+# ========== 简化验证码验证流程（替代挑战响应）==========
+
+@app.post("/api/verification/code/generate")
+async def generate_code(request: VerificationCodeRequest):
+    """
+    生成验证码给指定 Portal
+    Agent B 收到好友请求后，生成验证码准备发给 Agent A
+    """
+    code = generate_verification_code()
+    expires_at = datetime.utcnow() + timedelta(minutes=10)
+    
+    conn = sqlite3.connect(DATABASE_PATH)
+    cursor = conn.cursor()
+    
+    # 保存验证码
+    cursor.execute('''
+        INSERT OR REPLACE INTO verification_codes (portal_url, code, status, expires_at)
+        VALUES (?, ?, 'pending', ?)
+    ''', (request.portal_url, code, expires_at))
+    
+    conn.commit()
+    conn.close()
+    
+    return {
+        "code": code,
+        "expires_at": expires_at.isoformat(),
+        "message": f"验证码已生成：{code}，请通过留言发送给对方"
+    }
+
+@app.post("/api/verification/code/confirm")
+async def confirm_code(request: VerificationCodeConfirm):
+    """
+    确认验证码
+    Agent A 收到验证码后，向 Portal B 确认
+    """
+    conn = sqlite3.connect(DATABASE_PATH)
+    cursor = conn.cursor()
+    
+    # 查找验证码
+    cursor.execute('''
+        SELECT code, status FROM verification_codes 
+        WHERE portal_url = ? AND expires_at > ?
+    ''', (request.portal_url, datetime.utcnow()))
+    
+    result = cursor.fetchone()
+    if not result:
+        conn.close()
+        raise HTTPException(status_code=404, detail="验证码不存在或已过期")
+    
+    if result[0] != request.code:
+        conn.close()
+        raise HTTPException(status_code=400, detail="验证码错误")
+    
+    # 更新状态为已确认
+    cursor.execute('''
+        UPDATE verification_codes 
+        SET status = 'confirmed', verified_at = CURRENT_TIMESTAMP
+        WHERE portal_url = ?
+    ''', (request.portal_url,))
+    
+    conn.commit()
+    conn.close()
+    
+    # 通过 WebSocket 通知 Portal B 的主人
+    await manager.send_message(request.portal_url, {
+        "type": "code_confirmed",
+        "portal_url": request.portal_url,
+        "message": "对方已确认验证码，请发送 Token"
+    })
+    
+    return {
+        "status": "confirmed",
+        "message": "验证码正确，等待对方发送 Token"
+    }
+
+@app.post("/api/verification/token/exchange")
+async def exchange_token_verified(request: VerificationTokenExchange):
+    """
+    验证码确认后，交换 Token
+    Agent B 生成 Token 给 Agent A
+    """
+    conn = sqlite3.connect(DATABASE_PATH)
+    cursor = conn.cursor()
+    
+    # 检查验证码是否已确认
+    cursor.execute('''
+        SELECT status FROM verification_codes 
+        WHERE portal_url = ?
+    ''', (request.portal_url,))
+    
+    result = cursor.fetchone()
+    if not result or result[0] != 'confirmed':
+        conn.close()
+        raise HTTPException(status_code=400, detail="验证码尚未确认")
+    
+    # 生成 Token
+    my_token = create_token(request.portal_url)
+    expires_at = datetime.utcnow() + timedelta(days=TOKEN_EXPIRE_DAYS)
+    
+    # 保存联系人关系
+    cursor.execute('''
+        INSERT OR REPLACE INTO contacts 
+        (portal_url, token, their_token, expires_at, is_verified)
+        VALUES (?, ?, ?, ?, ?)
+    ''', (request.portal_url, my_token, request.their_token, expires_at, True))
+    
+    # 清理验证码
+    cursor.execute('DELETE FROM verification_codes WHERE portal_url = ?', (request.portal_url,))
+    
+    conn.commit()
+    conn.close()
+    
+    return {
+        "status": "verified",
+        "my_token": my_token,
+        "expires_at": expires_at.isoformat(),
+        "message": "验证完成，Token 已生成"
+    }
+
+@app.get("/api/verification/code/status")
+async def get_code_status(portal_url: str):
+    """查询验证码状态"""
+    conn = sqlite3.connect(DATABASE_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT code, status, expires_at FROM verification_codes 
+        WHERE portal_url = ?
+    ''', (portal_url,))
+    
+    result = cursor.fetchone()
+    conn.close()
+    
+    if not result:
+        return {"status": "none"}
+    
+    return {
+        "code": result[0] if result[1] == 'pending' else None,
+        "status": result[1],
+        "expires_at": result[2]
+    }
+
+# ========== 原验证流程（完全通过留言）==========
 
 class TokenExchangeRequest(BaseModel):
     portal_url: str
