@@ -248,7 +248,7 @@ class PortalDeployer:
         
         # 安装依赖
         exit_code, _, err = self.run_command(
-            f"cd {self.remote_path} && venv/bin/pip install -q fastapi uvicorn python-jose[cryptography] python-multipart websockets",
+            f"cd {self.remote_path} && venv/bin/pip install -q fastapi uvicorn python-jose[cryptography] python-multipart websockets pytz",
             timeout=180
         )
         if exit_code != 0:
@@ -262,10 +262,42 @@ class PortalDeployer:
         """配置 Nginx"""
         log_info("配置 Nginx...")
         
+        # 创建管理后台密码文件
+        log_info("创建管理后台密码保护...")
+        self.run_command("apt-get install -y apache2-utils", sudo=True)
+        self.run_command("htpasswd -cb /etc/nginx/.htpasswd admin AgentP2P2024", sudo=True)
+        
         config = f'''server {{
     listen 80;
     server_name {self.domain};
     
+    # 管理后台 - 需要密码验证
+    location = /static/admin.html {{
+        auth_basic "Agent P2P Admin";
+        auth_basic_user_file /etc/nginx/.htpasswd;
+        
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }}
+    
+    # 管理后台静态资源 - 也需要密码
+    location /static/ {{
+        auth_basic "Agent P2P Admin";
+        auth_basic_user_file /etc/nginx/.htpasswd;
+        
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }}
+    
+    # API 和 WebSocket - 公开访问
     location / {{
         proxy_pass http://127.0.0.1:8080;
         proxy_http_version 1.1;
@@ -301,7 +333,7 @@ class PortalDeployer:
         # 重启 Nginx
         self.run_command("systemctl restart nginx", sudo=True)
         
-        log_success("Nginx 配置完成")
+        log_success("Nginx 配置完成（管理后台已加密）")
         return True
     
     def setup_ssl(self) -> bool:
