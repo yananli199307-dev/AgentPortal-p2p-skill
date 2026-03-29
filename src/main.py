@@ -389,7 +389,7 @@ async def send_message(request: SendMessageRequest, background_tasks: Background
     background_tasks.add_task(push_message, to_portal, {
         "type": "message",
         "id": message_id,
-        "from": portal_url,
+        "from": from_portal,
         "content": request.content,
         "message_type": request.message_type,
         "created_at": get_now().isoformat()
