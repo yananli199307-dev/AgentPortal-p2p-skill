@@ -94,6 +94,7 @@ class AgentP2PClient:
         self.reconnect_interval = 5
         self.max_reconnect_interval = 60
         self.running = True
+        self.last_message_id = 0  # 记录最后处理的留言ID
         
         # 解析 skill 目录
         self.skill_dir = Path(__file__).parent.absolute()
@@ -155,7 +156,15 @@ class AgentP2PClient:
                 messages = data.get("messages", [])
                 
                 for msg in messages:
+                    msg_id = msg.get("id", 0)
+                    
+                    # 只处理新留言
+                    if msg_id <= self.last_message_id:
+                        continue
+                    
+                    self.last_message_id = msg_id
                     content = msg.get("content", "")
+                    created_at = msg.get("created_at", "")
                     
                     # 检查是否是好友请求（包含 Portal 地址）
                     if any(kw in content for kw in ["加好友", "好友", "P2P", "连接", "Portal", "portal"]):
@@ -188,6 +197,16 @@ class AgentP2PClient:
                             f"[Agent P2P] 🎉 收到 Token！\n"
                             f"Token: {token[:50]}...\n"
                             f"请保存到配置文件中"
+                        )
+                    
+                    # 普通留言通知
+                    if not any(kw in content for kw in ["加好友", "好友", "P2P", "连接", "Portal", "portal", "验证码", "Token", "token"]):
+                        logger.info(f"📨 收到新留言: {content[:50]}...")
+                        self.wake_openclaw(
+                            f"[Agent P2P] 收到新留言！\n"
+                            f"时间: {created_at}\n"
+                            f"内容: {content[:100]}...\n"
+                            f"请查看: {self.hub_url}/static/admin.html"
                         )
                         
         except Exception as e:
@@ -277,18 +296,21 @@ class AgentP2PClient:
             # 保存消息
             self.save_message(data)
             
-            # 构造唤醒文本
-            if msg_type == "message":
+            # 构造唤醒文本（ping/pong 不唤醒）
+            if msg_type == "ping" or msg_type == "pong":
+                # 心跳消息，不唤醒
+                pass
+            elif msg_type == "message":
                 content = data.get("content", "")
-                sender = data.get("sender_name", "未知")
+                sender = data.get("from", "未知")
                 wake_text = f"[Agent P2P] {sender}: {content}"
+                self.wake_openclaw(wake_text)
             elif msg_type == "system":
                 wake_text = f"[Agent P2P 系统] {data.get('content', '')}"
+                self.wake_openclaw(wake_text)
             else:
                 wake_text = f"[Agent P2P] 收到 {msg_type} 消息"
-            
-            # 唤醒 OpenClaw
-            self.wake_openclaw(wake_text)
+                self.wake_openclaw(wake_text)
             
         except json.JSONDecodeError:
             logger.error(f"无法解析消息: {message[:200]}")
@@ -362,6 +384,21 @@ class AgentP2PClient:
         
         signal.signal(signal.SIGTERM, signal_handler)
         signal.signal(signal.SIGINT, signal_handler)
+        
+        # 启动留言轮询线程
+        import threading
+        def poll_messages():
+            """定期轮询留言"""
+            while self.running:
+                try:
+                    self.check_pending_auth()
+                except Exception as e:
+                    logger.debug(f"轮询留言出错: {e}")
+                time.sleep(30)  # 每30秒检查一次
+        
+        poll_thread = threading.Thread(target=poll_messages, daemon=True)
+        poll_thread.start()
+        logger.info("✅ 留言轮询线程已启动")
         
         # 重连循环
         while self.running:

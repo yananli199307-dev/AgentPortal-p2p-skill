@@ -9,6 +9,7 @@ import json
 import secrets
 import hashlib
 from datetime import datetime, timedelta
+import pytz
 from jose import JWTError, jwt
 import os
 
@@ -21,6 +22,24 @@ SECRET_KEY = "agent-p2p-shared-key-2024"
 ALGORITHM = "HS256"
 TOKEN_EXPIRE_DAYS = 365
 DATABASE_PATH = os.getenv("DATABASE_PATH", "./data/portal.db")
+
+# 时区设置
+TZ = pytz.timezone('Asia/Shanghai')
+
+def get_now():
+    """获取当前北京时间"""
+    return datetime.now(TZ)
+
+def format_datetime(dt):
+    """格式化日期时间为北京时间字符串"""
+    if dt is None:
+        return None
+    if isinstance(dt, str):
+        return dt
+    # 转换为北京时间
+    if dt.tzinfo is None:
+        dt = pytz.UTC.localize(dt)
+    return dt.astimezone(TZ).strftime('%Y-%m-%d %H:%M:%S')
 
 # 确保数据目录存在
 os.makedirs(os.path.dirname(DATABASE_PATH), exist_ok=True)
@@ -147,7 +166,7 @@ def generate_verification_code() -> str:
 
 # 工具函数
 def create_token(portal_url: str) -> str:
-    expire = datetime.utcnow() + timedelta(days=TOKEN_EXPIRE_DAYS)
+    expire = get_now() + timedelta(days=TOKEN_EXPIRE_DAYS)
     to_encode = {"sub": portal_url, "exp": expire}
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
@@ -207,7 +226,7 @@ async def auth_initiate(request: AuthInitiateRequest):
     """发起身份验证"""
     challenge = generate_challenge()
     # 延长挑战有效期到 24 小时，给 Agent 足够时间响应
-    expires_at = datetime.utcnow() + timedelta(hours=24)
+    expires_at = get_now() + timedelta(hours=24)
     
     conn = sqlite3.connect(DATABASE_PATH)
     cursor = conn.cursor()
@@ -240,7 +259,7 @@ async def auth_complete(request: AuthCompleteRequest):
         SELECT challenge_code FROM challenges 
         WHERE portal_url = ? AND expires_at > ?
         ORDER BY created_at DESC LIMIT 1
-    ''', (request.portal_url, datetime.utcnow()))
+    ''', (request.portal_url, get_now()))
     
     result = cursor.fetchone()
     if not result or result[0] != request.challenge_response:
@@ -249,7 +268,7 @@ async def auth_complete(request: AuthCompleteRequest):
     
     # 生成 Token
     token = create_token(request.portal_url)
-    expires_at = datetime.utcnow() + timedelta(days=TOKEN_EXPIRE_DAYS)
+    expires_at = get_now() + timedelta(days=TOKEN_EXPIRE_DAYS)
     
     # 保存联系人
     cursor.execute('''
@@ -280,7 +299,7 @@ async def get_pending_challenges(portal_url: str):
         WHERE portal_url = ? AND expires_at > ?
         ORDER BY created_at DESC
         LIMIT 1
-    ''', (portal_url, datetime.utcnow()))
+    ''', (portal_url, get_now()))
     
     result = cursor.fetchone()
     conn.close()
@@ -305,7 +324,7 @@ async def generate_code(request: VerificationCodeRequest):
     Agent B 收到好友请求后，生成验证码准备发给 Agent A
     """
     code = generate_verification_code()
-    expires_at = datetime.utcnow() + timedelta(minutes=10)
+    expires_at = get_now() + timedelta(minutes=10)
     
     conn = sqlite3.connect(DATABASE_PATH)
     cursor = conn.cursor()
@@ -338,7 +357,7 @@ async def confirm_code(request: VerificationCodeConfirm):
     cursor.execute('''
         SELECT code, status FROM verification_codes 
         WHERE portal_url = ? AND expires_at > ?
-    ''', (request.portal_url, datetime.utcnow()))
+    ''', (request.portal_url, get_now()))
     
     result = cursor.fetchone()
     if not result:
@@ -393,7 +412,7 @@ async def exchange_token_verified(request: VerificationTokenExchange):
     
     # 生成 Token
     my_token = create_token(request.portal_url)
-    expires_at = datetime.utcnow() + timedelta(days=TOKEN_EXPIRE_DAYS)
+    expires_at = get_now() + timedelta(days=TOKEN_EXPIRE_DAYS)
     
     # 保存联系人关系
     cursor.execute('''
@@ -464,7 +483,7 @@ async def exchange_token(request: TokenExchangeRequest):
     
     # 生成 Token 给对方
     my_token = create_token(request.portal_url)
-    expires_at = datetime.utcnow() + timedelta(days=TOKEN_EXPIRE_DAYS)
+    expires_at = get_now() + timedelta(days=TOKEN_EXPIRE_DAYS)
     
     # 保存联系人关系
     cursor.execute('''
@@ -616,7 +635,7 @@ async def send_message(request: SendMessageRequest, background_tasks: Background
         "from": portal_url,
         "content": request.content,
         "message_type": request.message_type,
-        "created_at": datetime.utcnow().isoformat()
+        "created_at": get_now().isoformat()
     })
     
     return {"status": "delivered", "message_id": message_id}
