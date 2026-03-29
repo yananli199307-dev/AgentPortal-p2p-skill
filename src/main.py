@@ -103,6 +103,11 @@ init_db()
 class GuestMessageRequest(BaseModel):
     content: str
 
+class MessageHistoryRequest(BaseModel):
+    contact_portal: str
+    limit: int = 50
+    offset: int = 0
+
 class AuthInitiateRequest(BaseModel):
     portal_url: str
 
@@ -517,6 +522,63 @@ async def get_pending_tokens(portal_url: str):
         "tokens": tokens
     }
 
+# ========== 历史消息 API ==========
+
+@app.get("/api/messages/history")
+async def get_message_history(
+    contact_portal: str,
+    limit: int = 50,
+    offset: int = 0,
+    my_portal: str = "https://agentportalp2p.com"
+):
+    """
+    获取与指定联系人的消息历史
+    按时间倒序排列，支持分页
+    """
+    conn = sqlite3.connect(DATABASE_PATH)
+    cursor = conn.cursor()
+    
+    # 获取总消息数
+    cursor.execute('''
+        SELECT COUNT(*) FROM messages 
+        WHERE (from_portal = ? AND to_portal = ?) 
+           OR (from_portal = ? AND to_portal = ?)
+    ''', (my_portal, contact_portal, contact_portal, my_portal))
+    
+    total = cursor.fetchone()[0]
+    
+    # 获取消息列表（按时间倒序）
+    cursor.execute('''
+        SELECT id, from_portal, to_portal, content, message_type, created_at
+        FROM messages 
+        WHERE (from_portal = ? AND to_portal = ?) 
+           OR (from_portal = ? AND to_portal = ?)
+        ORDER BY created_at DESC
+        LIMIT ? OFFSET ?
+    ''', (my_portal, contact_portal, contact_portal, my_portal, limit, offset))
+    
+    messages = []
+    for row in cursor.fetchall():
+        msg_type = "sent" if row[1] == my_portal else "received"
+        messages.append({
+            "id": row[0],
+            "type": msg_type,
+            "from": row[1],
+            "to": row[2],
+            "content": row[3],
+            "message_type": row[4],
+            "created_at": row[5]
+        })
+    
+    conn.close()
+    
+    return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "messages": messages
+    }
+
 async def push_message(to_portal: str, message: dict):
     """异步推送消息到 WebSocket"""
     try:
@@ -663,12 +725,36 @@ manager = ConnectionManager()
 @app.websocket("/ws/agent")
 async def websocket_endpoint(websocket: WebSocket, token: str):
     await manager.connect(websocket, token)
+    import asyncio
+    
+    # 获取 portal_url
+    portal_url = verify_token(token)
+    
+    # 启动心跳任务
+    heartbeat_task = None
+    
+    async def send_heartbeat():
+        """定期发送心跳保持连接"""
+        while True:
+            try:
+                await asyncio.sleep(30)  # 每30秒发送一次心跳
+                await websocket.send_json({"type": "ping"})
+            except Exception:
+                break
+    
+    # 启动心跳
+    heartbeat_task = asyncio.create_task(send_heartbeat())
+    
     try:
         while True:
-            data = await websocket.receive_json()
+            # 设置接收超时，避免长时间阻塞
+            data = await asyncio.wait_for(websocket.receive_json(), timeout=60)
             
             if data.get("type") == "ping":
                 await websocket.send_json({"type": "pong"})
+            elif data.get("type") == "pong":
+                # 收到心跳响应，连接正常
+                pass
             
             elif data.get("type") == "sync_request":
                 # 返回未同步的消息
