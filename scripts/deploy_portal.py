@@ -204,42 +204,29 @@ class PortalDeployer:
         return True
     
     def upload_code(self) -> bool:
-        """上传 Portal 代码"""
-        log_info("上传 Portal 代码...")
+        """从 GitHub 拉取最新代码"""
+        log_info("从 GitHub 拉取最新代码...")
         
         # 创建远程目录（使用 sudo）
         self.run_command(f"mkdir -p {self.remote_path}", sudo=True)
         self.run_command(f"chown -R $(whoami):$(whoami) {self.remote_path}", sudo=True)
         
-        # 上传 src 目录
-        local_src = self.local_skill_path / "src"
-        remote_src = f"{self.remote_path}/src"
-        self.run_command(f"mkdir -p {remote_src}")
+        # 从 GitHub 克隆最新代码
+        github_url = "https://github.com/yananli199307-dev/AgentPortal-p2p-skill.git"
         
-        # 使用 tar + scp 批量上传
-        import tarfile
-        import io
+        # 如果目录已存在，先删除
+        self.run_command(f"rm -rf {self.remote_path}")
         
-        # 打包 src 目录
-        tar_buffer = io.BytesIO()
-        with tarfile.open(fileobj=tar_buffer, mode='w:gz') as tar:
-            tar.add(local_src, arcname='src')
-        tar_buffer.seek(0)
-        
-        # 上传 tar 包
-        remote_tar = f"/tmp/agent-p2p-src.tar.gz"
-        self.sftp.putfo(tar_buffer, remote_tar)
-        
-        # 解压
-        exit_code, _, err = self.run_command(f"cd {self.remote_path} && tar -xzf {remote_tar}")
+        # 克隆代码
+        exit_code, _, err = self.run_command(
+            f"cd /opt && git clone --depth 1 {github_url} agent-p2p",
+            timeout=60
+        )
         if exit_code != 0:
-            log_error(f"解压失败: {err}")
+            log_error(f"克隆代码失败: {err}")
             return False
         
-        # 清理
-        self.run_command(f"rm {remote_tar}")
-        
-        log_success("代码上传完成")
+        log_success("最新代码拉取完成")
         return True
     
     def install_python_deps(self) -> bool:
