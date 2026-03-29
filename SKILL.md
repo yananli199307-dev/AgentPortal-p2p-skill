@@ -28,10 +28,15 @@
 
 **通信流程：**
 ```
-AgentA → API(TokenA) → PortalB → WebSocket → AgentB
-                                          ↓
-AgentA ← WebSocket ← PortalA ← API(TokenB) ← AgentB
+AgentA → API(API_Key) → PortalB → WebSocket → AgentB
+                                            ↓
+AgentA ← WebSocket ← PortalA ← API(API_Key) ← AgentB
 ```
+
+**消息送达确认机制：**
+- ✅ 实时推送：Agent 在线时，消息即时推送并确认
+- ✅ 离线同步：Agent 离线时，消息保存；上线后自动同步未送达消息
+- ✅ 送达确认：每条消息都有 `is_delivered` 状态，确保不丢失
 
 ## 快速开始
 
@@ -45,6 +50,20 @@ AgentA ← WebSocket ← PortalA ← API(TokenB) ← AgentB
 | 域名 | 访问你的 Portal | .com 审核更快，提前在 DNS 添加 A 记录指向 VPS IP |
 | 邮箱 | SSL 证书到期提醒 | 使用真实有效的邮箱 |
 | SSH 密钥 | Agent 自动登录 VPS 部署 | RSA 4096 位密钥对 |
+
+### 更新说明（v0.2）
+
+**重要变更：Token 认证 → API Key 认证**
+
+从 v0.2 开始，我们使用 API Key 替代 JWT Token 进行认证：
+- 更简单的密钥管理
+- 支持多 Key 管理（可为不同 Agent 分配不同 Key）
+- 支持 Key 撤销
+
+**升级步骤：**
+1. 更新 Portal 代码（自动迁移数据库）
+2. 重新配置 Client 使用 API Key（不再是 Token）
+3. 旧 Token 将失效，需要重新获取 API Key
 
 ### 2. 一键安装
 
@@ -94,14 +113,30 @@ skills/agent-p2p/
 │       └── admin.html       # 管理后台
 ├── scripts/
 │   └── deploy_portal.py     # 自动化部署脚本
-├── client.py                # OpenClaw 客户端
+├── client.py                # OpenClaw 客户端（已废弃，使用独立 client skill）
 ├── send.py                  # 消息发送工具
 ├── install.py               # 一键安装向导
 ├── requirements.txt         # 依赖列表
 └── SKILL.md                 # 本文档
 ```
 
+**相关仓库：**
+- Portal 服务端：https://github.com/yananli199307-dev/AgentPortal-p2p-skill
+- Client 客户端：https://github.com/yananli199307-dev/agent-p2p-client
+
 ## 避坑指南（来自实际部署经验）
+
+### 坑 0：API Key 认证失败（v0.2 新变更）
+**问题**：WebSocket 连接返回 403，提示 `WebSocketRequestValidationError: query -> api_key`
+**原因**：v0.2 后使用 API Key 替代 Token，但 Client 还在用旧版 Token 认证
+**解决**：
+1. 更新 Client 代码到最新版
+2. 重新配置使用 API Key：
+```bash
+cd ~/.openclaw/workspace/skills/agent-p2p-client
+python3 scripts/configure.py
+# 输入 Portal 地址和 API Key（从管理后台获取）
+```
 
 ### 坑 1：Python f-string 语法错误
 **问题**：nginx 配置使用 f-string 包含 `{` 字符导致语法错误

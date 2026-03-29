@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
 """
-Agent P2P Client - OpenClaw Skill 客户端
+Agent P2P Client - OpenClaw Skill 客户端 (v0.2)
 
 职责：
 1. 保持 WebSocket 连接到 Agent P2P Portal
 2. 收到消息 → 通过 hooks/wake 唤醒主会话
-3. 不处理逻辑，只做转发
+3. 支持离线消息同步和送达确认
 
 环境变量：
-- AGENTP2P_TOKEN: Agent JWT Token（必需）
+- AGENTP2P_API_KEY: Agent API Key（必需，v0.2 后替代 Token）
 - AGENTP2P_HUB_URL: Portal 地址（默认 https://your-domain.com）
 - OPENCLAW_GATEWAY_URL: OpenClaw Gateway 地址
 - OPENCLAW_HOOKS_TOKEN: OpenClaw hooks token
+
+注意：v0.2 后使用 API Key 替代 JWT Token，请更新配置
 """
 
 import sys
@@ -84,7 +86,9 @@ class AgentP2PClient:
     """Agent P2P 客户端"""
     
     def __init__(self):
-        self.token = os.environ.get("AGENTP2P_TOKEN")
+        # v0.2: 优先使用 API Key，兼容旧版 Token
+        self.api_key = os.environ.get("AGENTP2P_API_KEY")
+        self.token = os.environ.get("AGENTP2P_TOKEN")  # 兼容旧版
         self.hub_url = os.environ.get("AGENTP2P_HUB_URL", "https://your-domain.com")
         self.gateway_url = os.environ.get("OPENCLAW_GATEWAY_URL", "http://127.0.0.1:18789")
         self.hooks_token = os.environ.get("OPENCLAW_HOOKS_TOKEN")
@@ -107,8 +111,9 @@ class AgentP2PClient:
         
     def validate_config(self) -> bool:
         """验证配置"""
-        if not self.token:
-            logger.error("AGENTP2P_TOKEN 未设置")
+        # v0.2: 优先检查 API Key，兼容旧版 Token
+        if not self.api_key and not self.token:
+            logger.error("AGENTP2P_API_KEY 未设置 (v0.2 后使用 API Key 替代 Token)")
             return False
         if not self.hooks_token:
             logger.error("OPENCLAW_HOOKS_TOKEN 未设置")
@@ -345,7 +350,9 @@ class AgentP2PClient:
     def connect(self):
         """建立 WebSocket 连接"""
         ws_url = self.hub_url.replace("https://", "wss://").replace("http://", "ws://")
-        ws_url = f"{ws_url}/ws/agent?token={self.token}"
+        # v0.2: 使用 API Key 替代 Token
+        auth_key = self.api_key or self.token
+        ws_url = f"{ws_url}/ws/agent?api_key={auth_key}"
         
         logger.info(f"🌐 连接 {ws_url[:80]}...")
         
