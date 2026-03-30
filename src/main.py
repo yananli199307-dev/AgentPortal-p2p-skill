@@ -51,7 +51,8 @@ def init_db():
             ip_address TEXT,
             user_agent TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            is_read BOOLEAN DEFAULT FALSE
+            is_read BOOLEAN DEFAULT FALSE,
+            status TEXT DEFAULT 'pending'
         )
     ''')
     
@@ -178,7 +179,7 @@ async def get_guest_messages():
     cursor = conn.cursor()
     
     cursor.execute('''
-        SELECT id, content, created_at, is_read 
+        SELECT id, content, created_at, is_read, status 
         FROM guest_messages 
         ORDER BY created_at DESC
     ''')
@@ -188,10 +189,33 @@ async def get_guest_messages():
     
     return {
         "messages": [
-            {"id": m[0], "content": m[1], "created_at": m[2], "is_read": m[3]}
+            {"id": m[0], "content": m[1], "created_at": m[2], "is_read": m[3], "status": m[4] or 'pending'}
             for m in messages
         ]
     }
+
+@app.post("/api/guest/messages/{message_id}/status")
+async def update_message_status(message_id: int, request: Request):
+    """更新留言状态（同意/拒绝）"""
+    data = await request.json()
+    status = data.get('status')
+    
+    if status not in ['approved', 'rejected']:
+        raise HTTPException(status_code=400, detail="Invalid status")
+    
+    conn = sqlite3.connect(DATABASE_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        UPDATE guest_messages 
+        SET status = ?, is_read = TRUE 
+        WHERE id = ?
+    ''', (status, message_id))
+    
+    conn.commit()
+    conn.close()
+    
+    return {"status": "updated"}
 
 # ========== API Key 管理接口 ==========
 
@@ -520,6 +544,54 @@ async def create_contact(request: CreateContactRequest):
     conn.close()
     
     return {"status": "created"}
+
+@app.delete("/api/contacts/{contact_id}")
+async def delete_contact(contact_id: int):
+    """删除联系人"""
+    conn = sqlite3.connect(DATABASE_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute('DELETE FROM contacts WHERE id = ?', (contact_id,))
+    
+    if cursor.rowcount == 0:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Contact not found")
+    
+    conn.commit()
+    conn.close()
+    
+    return {"status": "deleted"}
+
+@app.put("/api/contacts/{contact_id}")
+async def update_contact(contact_id: int, request: CreateContactRequest):
+    """更新联系人信息"""
+    conn = sqlite3.connect(DATABASE_PATH)
+    cursor = conn.cursor()
+    
+    # 检查联系人是否存在
+    cursor.execute('SELECT id FROM contacts WHERE id = ?', (contact_id,))
+    if not cursor.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="Contact not found")
+    
+    # 更新字段
+    cursor.execute('''
+        UPDATE contacts 
+        SET display_name = ?, agent_name = ?, user_name = ?, api_key = ?, their_api_key = ?
+        WHERE id = ?
+    ''', (
+        request.display_name,
+        request.agent_name,
+        request.user_name,
+        request.api_key,
+        request.their_api_key,
+        contact_id
+    ))
+    
+    conn.commit()
+    conn.close()
+    
+    return {"status": "updated"}
 
 @app.get("/api/portal/info")
 async def get_portal_info():

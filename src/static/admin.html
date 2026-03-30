@@ -34,6 +34,7 @@
             font-size: 14px;
             font-weight: 600;
         }
+        .btn:hover { transform: translateY(-2px); box-shadow: 0 5px 20px rgba(0,0,0,0.2); }
         .card { 
             background: white; 
             border-radius: 16px; 
@@ -61,6 +62,7 @@
             color: #666;
             font-weight: 500;
         }
+        .tab:hover { background: #f5f5f5; }
         .tab.active {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
@@ -69,20 +71,16 @@
         
         /* 留言样式 */
         .guest-message {
-            padding: 16px;
+            padding: 20px;
             border-left: 4px solid #667eea;
             background: #f8f9ff;
-            margin-bottom: 12px;
-            border-radius: 0 8px 8px 0;
-        }
-        .guest-message.unread {
-            background: #e3f2fd;
-            border-left-color: #2196f3;
+            margin-bottom: 16px;
+            border-radius: 0 12px 12px 0;
         }
         .guest-header {
             display: flex;
             justify-content: space-between;
-            margin-bottom: 8px;
+            margin-bottom: 12px;
             font-size: 14px;
         }
         .guest-sender { font-weight: 600; color: #667eea; }
@@ -91,64 +89,29 @@
             white-space: pre-wrap;
             color: #333;
             line-height: 1.6;
+            margin-bottom: 12px;
+            padding: 12px;
+            background: white;
+            border-radius: 8px;
         }
         .guest-actions {
-            margin-top: 12px;
+            display: flex;
+            gap: 12px;
         }
         .btn-small {
-            padding: 6px 12px;
-            font-size: 12px;
-            background: #667eea;
-            color: white;
+            padding: 8px 16px;
+            font-size: 13px;
             border: none;
-            border-radius: 4px;
+            border-radius: 6px;
             cursor: pointer;
-            margin-right: 8px;
+            font-weight: 500;
         }
         .btn-secondary {
             background: #f0f0f0;
             color: #555;
         }
-        
-        /* 联系人样式 */
-        .contact-item {
-            padding: 20px;
-            border-bottom: 1px solid #f0f0f0;
-            cursor: pointer;
-            transition: background 0.2s;
-        }
-        .contact-item:hover { background: #f8f9ff; }
-        .contact-item.active {
-            background: #e3f2fd;
-            border-left: 3px solid #667eea;
-        }
-        .contact-name {
-            font-weight: 600;
-            color: #333;
-            margin-bottom: 4px;
-        }
-        .contact-url {
-            color: #667eea;
-            font-size: 13px;
-            word-break: break-all;
-        }
-        .contact-meta {
-            display: flex;
-            gap: 12px;
-            margin-top: 8px;
-            font-size: 12px;
-            color: #666;
-        }
-        .badge {
-            background: #e3f2fd;
-            color: #1976d2;
-            padding: 2px 8px;
-            border-radius: 4px;
-            font-size: 11px;
-        }
-        .badge.new {
-            background: #ff4757;
-            color: white;
+        .btn-secondary:hover {
+            background: #e0e0e0;
         }
         
         /* 两栏布局 */
@@ -159,6 +122,48 @@
         }
         @media (max-width: 900px) {
             .two-column { grid-template-columns: 1fr; }
+        }
+        
+        /* 联系人样式 */
+        .contact-item {
+            padding: 16px;
+            border-bottom: 1px solid #f0f0f0;
+            cursor: pointer;
+            transition: background 0.2s;
+            border-left: 3px solid transparent;
+        }
+        .contact-item:hover { background: #f8f9ff; }
+        .contact-item.active {
+            background: #e3f2fd;
+            border-left-color: #667eea;
+        }
+        .contact-name {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 4px;
+        }
+        .contact-url {
+            color: #667eea;
+            font-size: 12px;
+            word-break: break-all;
+        }
+        .contact-meta {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 8px;
+            font-size: 12px;
+            color: #666;
+        }
+        .badge {
+            background: #e3f2fd;
+            color: #1976d2;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 11px;
+        }
+        .badge.new {
+            background: #ff4757;
+            color: white;
         }
         
         /* 联系人详情 */
@@ -223,6 +228,65 @@
             padding: 60px 20px;
             color: #999;
         }
+        
+        /* 弹窗 */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        .modal-content {
+            background: white;
+            padding: 24px;
+            border-radius: 16px;
+            max-width: 500px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        .modal-title {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 16px;
+        }
+        .form-group {
+            margin-bottom: 16px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 6px;
+            color: #555;
+            font-size: 14px;
+            font-weight: 500;
+        }
+        .form-group input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+        .modal-actions {
+            display: flex;
+            gap: 12px;
+            justify-content: flex-end;
+            margin-top: 20px;
+        }
+        .btn-approve {
+            background: linear-gradient(135deg, #4caf50 0%, #388e3c 100%);
+            color: white;
+        }
+        .btn-reject {
+            background: linear-gradient(135deg, #f44336 0%, #d32f2f 100%);
+            color: white;
+        }
     </style>
 </head>
 <body>
@@ -233,12 +297,12 @@
         </div>
         
         <div class="tabs">
-            <div class="tab active" onclick="switchTab('guest')">📨 留言历史</div>
-            <div class="tab" onclick="switchTab('contacts')">👥 联系人 & 消息</div>
+            <div class="tab active" onclick="switchTab('guest')">📨 留言</div>
+            <div class="tab" onclick="switchTab('contacts')">👥 联系人</div>
             <div class="tab" onclick="switchTab('myinfo')">⚙️ 我的信息</div>
         </div>
         
-        <!-- 留言历史 -->
+        <!-- 留言 -->
         <div id="tab-guest" class="card">
             <h2>📨 收到的留言</h2>
             <div id="guest-list">
@@ -246,21 +310,18 @@
             </div>
         </div>
         
-        <!-- 联系人 & 消息 -->
+        <!-- 联系人 -->
         <div id="tab-contacts" class="card hidden">
-            <h2>👥 联系人 & 消息记录</h2>
+            <h2>👥 联系人 & 消息</h2>
             <div class="two-column">
                 <div>
-                    <div style="margin-bottom: 16px;">
-                        <button class="btn-small" onclick="showAddContact()">➕ 添加联系人</button>
-                    </div>
                     <div id="contact-list">
                         <div class="empty-state">暂无联系人</div>
                     </div>
                 </div>
                 <div>
                     <div id="contact-detail-area">
-                        <div class="empty-state">选择联系人查看详情和消息</div>
+                        <div class="empty-state">选择联系人查看详情</div>
                     </div>
                 </div>
             </div>
@@ -279,48 +340,38 @@
                     <div class="info-value" id="my-key">加载中...</div>
                 </div>
             </div>
-            <div style="background: #e3f2fd; padding: 16px; border-radius: 8px;">
-                <strong>💡 使用说明</strong>
-                <ol style="margin-top: 8px; padding-left: 20px; color: #555;">
-                    <li>复制你的 Portal URL 和 API Key</li>
-                    <li>去对方 Portal 首页留言，附上你的信息</li>
-                    <li>收到对方信息后，在"联系人"中添加</li>
-                    <li>在联系人详情中查看消息记录</li>
-                </ol>
-            </div>
         </div>
     </div>
     
-    <!-- 添加联系人弹窗 -->
-    <div id="add-contact-modal" class="card hidden" style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 1000; max-width: 500px; width: 90%; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
-        <h2>➕ 添加联系人</h2>
-        <div style="margin-bottom: 12px;">
-            <label style="display: block; margin-bottom: 4px; color: #666; font-size: 14px;">显示名称 *</label>
-            <input type="text" id="new-name" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px;" placeholder="例如：小A的Agent">
-        </div>
-        <div style="margin-bottom: 12px;">
-            <label style="display: block; margin-bottom: 4px; color: #666; font-size: 14px;">对方 Portal URL *</label>
-            <input type="text" id="new-url" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px;" placeholder="https://example.com">
-        </div>
-        <div style="margin-bottom: 12px;">
-            <label style="display: block; margin-bottom: 4px; color: #666; font-size: 14px;">Agent 名称</label>
-            <input type="text" id="new-agent" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px;" placeholder="对方的 Agent 名称">
-        </div>
-        <div style="margin-bottom: 12px;">
-            <label style="display: block; margin-bottom: 4px; color: #666; font-size: 14px;">用户名称</label>
-            <input type="text" id="new-user" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px;" placeholder="对方的用户名称">
-        </div>
-        <div style="margin-bottom: 12px;">
-            <label style="display: block; margin-bottom: 4px; color: #666; font-size: 14px;">对方的 API Key（用于给对方发消息）</label>
-            <input type="text" id="new-their-key" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px;" placeholder="ap2p_xxx">
-        </div>
-        <div style="margin-bottom: 12px;">
-            <label style="display: block; margin-bottom: 4px; color: #666; font-size: 14px;">你给对方的 API Key（对方用这个给你发消息）</label>
-            <input type="text" id="new-my-key" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px;" placeholder="ap2p_xxx">
-        </div>
-        <div style="display: flex; gap: 8px; justify-content: flex-end;">
-            <button class="btn-small btn-secondary" onclick="hideAddContact()">取消</button>
-            <button class="btn-small" onclick="addContact()">保存</button>
+    <!-- 编辑联系人弹窗 -->
+    <div id="edit-modal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <div class="modal-title">✏️ 编辑联系人</div>
+            <input type="hidden" id="edit-id">
+            <div class="form-group">
+                <label>显示名称</label>
+                <input type="text" id="edit-name" placeholder="显示名称">
+            </div>
+            <div class="form-group">
+                <label>Agent 名称</label>
+                <input type="text" id="edit-agent" placeholder="Agent 名称">
+            </div>
+            <div class="form-group">
+                <label>用户名称</label>
+                <input type="text" id="edit-user" placeholder="用户名称">
+            </div>
+            <div class="form-group">
+                <label>你给对方的 API Key</label>
+                <input type="text" id="edit-mykey" placeholder="ap2p_xxx">
+            </div>
+            <div class="form-group">
+                <label>对方的 API Key</label>
+                <input type="text" id="edit-theirkey" placeholder="ap2p_xxx">
+            </div>
+            <div class="modal-actions">
+                <button class="btn-small btn-secondary" onclick="hideEditModal()">取消</button>
+                <button class="btn-small btn-approve" onclick="confirmEdit()">保存</button>
+            </div>
         </div>
     </div>
 
@@ -363,36 +414,20 @@
                 }
                 
                 list.innerHTML = msgs.map(m => `
-                    <div class="guest-message ${m.is_read ? '' : 'unread'}">
+                    <div class="guest-message">
                         <div class="guest-header">
                             <span class="guest-sender">匿名访客</span>
                             <span class="guest-time">${formatTime(m.created_at)}</span>
                         </div>
                         <div class="guest-content">${escapeHtml(m.content)}</div>
                         <div class="guest-actions">
-                            ${!m.is_read ? `<button class="btn-small" onclick="markRead(${m.id})">标记已读</button>` : ''}
-                            <button class="btn-small btn-secondary" onclick="copyToContact('${escapeHtml(m.content)}')">添加为联系人</button>
+                            <button class="btn-small btn-secondary" onclick="copyText('${escapeHtml(m.content)}')">📋 复制</button>
                         </div>
                     </div>
                 `).join('');
             } catch (e) {
                 console.error('加载留言失败:', e);
             }
-        }
-        
-        async function markRead(id) {
-            await fetch(`/api/guest/messages/${id}/read`, {method: 'POST'});
-            loadGuestMessages();
-        }
-        
-        function copyToContact(content) {
-            // 从留言中提取 Portal URL
-            const match = content.match(/https?:\/\/[^\s]+/);
-            if (match) {
-                document.getElementById('new-url').value = match[0];
-            }
-            switchTab('contacts');
-            showAddContact();
         }
         
         // 加载联系人
@@ -410,7 +445,7 @@
         function renderContactList() {
             const list = document.getElementById('contact-list');
             if (contacts.length === 0) {
-                list.innerHTML = '<div class="empty-state">👤 暂无联系人<br><small>点击上方按钮添加</small></div>';
+                list.innerHTML = '<div class="empty-state">👤 暂无联系人</div>';
                 return;
             }
             
@@ -421,6 +456,10 @@
                     <div class="contact-meta">
                         <span>${c.agent_name || ''} ${c.user_name || ''}</span>
                         ${c.unread_count > 0 ? `<span class="badge new">${c.unread_count} 新消息</span>` : ''}
+                    </div>
+                    <div style="margin-top: 8px; display: flex; gap: 8px;">
+                        <button class="btn-small btn-secondary" onclick="event.stopPropagation(); editContact(${c.id})" style="font-size: 11px; padding: 4px 8px;">✏️ 编辑</button>
+                        <button class="btn-small btn-reject" onclick="event.stopPropagation(); deleteContact(${c.id})" style="font-size: 11px; padding: 4px 8px;">🗑️ 删除</button>
                     </div>
                 </div>
             `).join('');
@@ -435,7 +474,7 @@
         
         function renderContactDetail() {
             if (!selectedContact) {
-                document.getElementById('contact-detail-area').innerHTML = '<div class="empty-state">选择联系人查看详情和消息</div>';
+                document.getElementById('contact-detail-area').innerHTML = '<div class="empty-state">选择联系人查看详情</div>';
                 return;
             }
             
@@ -487,7 +526,7 @@
                 if (!container) return;
                 
                 if (msgs.length === 0) {
-                    container.innerHTML = '<div class="empty-state">💬 暂无消息记录</div>';
+                    container.innerHTML = '<div class="empty-state">💬 暂无消息</div>';
                     return;
                 }
                 
@@ -504,54 +543,54 @@
             }
         }
         
-        function showAddContact() {
-            document.getElementById('add-contact-modal').classList.remove('hidden');
-        }
-        
-        function hideAddContact() {
-            document.getElementById('add-contact-modal').classList.add('hidden');
-        }
-        
-        async function addContact() {
-            const name = document.getElementById('new-name').value.trim();
-            const url = document.getElementById('new-url').value.trim();
-            const agent = document.getElementById('new-agent').value.trim();
-            const user = document.getElementById('new-user').value.trim();
-            const theirKey = document.getElementById('new-their-key').value.trim();
-            const myKey = document.getElementById('new-my-key').value.trim();
-            
-            if (!name || !url) {
-                alert('请填写显示名称和 Portal URL');
-                return;
-            }
-            
+        async function deleteContact(id) {
+            if (!confirm('确定删除此联系人？')) return;
             try {
-                const res = await fetch('/api/contacts', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        display_name: name,
-                        portal_url: url,
-                        agent_name: agent,
-                        user_name: user,
-                        their_api_key: theirKey,
-                        api_key: myKey
-                    })
-                });
-                
-                if (res.ok) {
-                    hideAddContact();
-                    loadContacts();
-                    // 清空表单
-                    document.getElementById('new-name').value = '';
-                    document.getElementById('new-url').value = '';
-                    document.getElementById('new-agent').value = '';
-                    document.getElementById('new-user').value = '';
-                    document.getElementById('new-their-key').value = '';
-                    document.getElementById('new-my-key').value = '';
-                }
+                await fetch(`/api/contacts/${id}`, { method: 'DELETE' });
+                if (selectedContact?.id === id) selectedContact = null;
+                loadContacts();
             } catch (e) {
-                alert('添加失败: ' + e.message);
+                alert('删除失败');
+            }
+        }
+        
+        function editContact(id) {
+            const c = contacts.find(x => x.id === id);
+            if (!c) return;
+            document.getElementById('edit-id').value = c.id;
+            document.getElementById('edit-name').value = c.display_name || '';
+            document.getElementById('edit-agent').value = c.agent_name || '';
+            document.getElementById('edit-user').value = c.user_name || '';
+            document.getElementById('edit-mykey').value = c.api_key || '';
+            document.getElementById('edit-theirkey').value = c.their_api_key || '';
+            document.getElementById('edit-modal').classList.remove('hidden');
+        }
+        
+        function hideEditModal() {
+            document.getElementById('edit-modal').classList.add('hidden');
+        }
+        
+        async function confirmEdit() {
+            const id = document.getElementById('edit-id').value;
+            const data = {
+                portal_url: contacts.find(c => c.id == id)?.portal_url || '',
+                display_name: document.getElementById('edit-name').value.trim(),
+                agent_name: document.getElementById('edit-agent').value.trim(),
+                user_name: document.getElementById('edit-user').value.trim(),
+                api_key: document.getElementById('edit-mykey').value.trim(),
+                their_api_key: document.getElementById('edit-theirkey').value.trim()
+            };
+            try {
+                await fetch(`/api/contacts/${id}`, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(data)
+                });
+                hideEditModal();
+                loadContacts();
+                if (selectedContact?.id == id) selectContact(parseInt(id));
+            } catch (e) {
+                alert('更新失败');
             }
         }
         
@@ -567,6 +606,10 @@
             }
         }
         
+        function copyText(text) {
+            navigator.clipboard.writeText(text).then(() => alert('📋 已复制'));
+        }
+        
         function escapeHtml(text) {
             if (!text) return '';
             const div = document.createElement('div');
@@ -576,8 +619,7 @@
         
         function formatTime(timeStr) {
             if (!timeStr) return '';
-            const date = new Date(timeStr);
-            return date.toLocaleString('zh-CN');
+            return new Date(timeStr).toLocaleString('zh-CN');
         }
     </script>
 </body>
