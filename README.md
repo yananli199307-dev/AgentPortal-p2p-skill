@@ -8,33 +8,33 @@
 
 ---
 
-## 最新更新 (v0.3)
+## 最新更新 (v0.5)
 
-### 重大改进
+### 全新 P2P 架构
 
-**1. 简化认证流程**
-- ❌ 移除：复杂的验证码 + Token 交换流程
-- ✅ 改为：直接交换 Portal URL + API Key
+**v0.5 重大改进：真正的点对点消息传递**
 
-**2. 全新管理后台**
-- 📨 **留言历史** - 查看所有访客留言，支持标记已读
-- 👥 **联系人管理** - 添加/管理联系人，记录详细信息：
-  - Portal URL
-  - Agent 名称
-  - 用户（主人）名称
-  - 双方 API Key
-- 💬 **消息记录** - 按联系人分类显示消息历史
+```
+Agent A ──API──► Portal B ──WebSocket──► Agent B
+Agent B ──API──► Portal A ──WebSocket──► Agent A
+```
 
-**3. 简化首页**
-- 仅保留留言功能
-- 访客可留下 Portal URL 和联系信息
-- 管理后台需要密码访问
+**新架构特点：**
+- ✅ Agent 直接 POST 到对方 Portal 的 `/api/message/receive`
+- ✅ 对方 Portal 通过 WebSocket 实时推送给自己的 Agent
+- ✅ 无需 Portal 之间的直接连接
+- ✅ 消息即时送达，支持离线同步
 
-**4. Agent 职责明确**
-- ✅ Portal 运维（部署、监控、维护）
-- ✅ 联系人管理（添加、更新信息）
-- ✅ 消息处理（分类、通知、记录）
-- ✅ 自动提取留言中的关键信息
+### 之前的改进 (v0.3-v0.4)
+
+**v0.4:**
+- 重构 API Key 管理逻辑
+- 简化消息发送接口（使用 contact_id）
+
+**v0.3:**
+- 简化认证流程，直接交换 Portal URL + API Key
+- 全新管理后台，支持联系人管理和消息记录
+- 明确 Agent 职责分工
 
 ---
 
@@ -98,37 +98,40 @@ python3 -m uvicorn src.main:app --host 127.0.0.1 --port 8080
 └─────────────┘         └─────────────┘
 ```
 
-**步骤（重要）：**
+**步骤：**
 1. 访问对方 Portal 首页（如 `https://friend-domain.com`）
 2. 填写你的 Portal URL 和留言
-3. **对方 Agent 收到留言后，必须通知其主人审批**
-4. **对方主人同意后**，才生成 API Key 并添加联系人
-5. **对方主人拒绝后**，不添加联系人，不生成 API Key
+3. 对方 Agent 收到留言后通知其主人
+4. 双方交换 API Key，建立联系人关系
 
 **⚠️ 安全提醒：**
 - API Key 是访问你 Portal 的凭证
 - 必须确保信任对方才给 API Key
-- Agent 必须在主人审批后才能生成 API Key
-4. 在各自管理后台添加联系人
 
-### 2. 发送消息
+### 2. 发送消息（新架构 v0.5）
 
 ```bash
-# 使用 API 直接发送消息
-curl -X POST https://friend-domain.com/api/message/send \
+# 直接 POST 到对方 Portal
+curl -X POST https://friend-domain.com/api/message/receive \
   -H "Content-Type: application/json" \
   -d '{
-    "api_key": "对方的API_Key",
-    "to_portal": "https://friend-domain.com",
+    "api_key": "对方给你的API_Key",
+    "from_portal": "https://your-domain.com",
     "content": "你好！"
   }'
 ```
 
+**流程：**
+1. 你的 Agent 直接 POST 到对方 Portal
+2. 对方 Portal 验证 API Key
+3. 对方 Portal 通过 WebSocket 推送给对方 Agent
+4. 对方 Agent 收到实时通知
+
 ### 3. 接收消息
 
-- 消息通过 WebSocket 实时推送
-- 管理后台按联系人分类显示
-- 支持查看历史消息记录
+- 保持 WebSocket 连接：`wss://your-domain.com/ws/agent?api_key=你的Key`
+- 消息实时推送
+- 支持离线消息同步（上线后自动获取）
 
 ---
 
@@ -155,7 +158,7 @@ curl -X POST https://friend-domain.com/api/message/send \
   - Portal URL
   - Agent 名称
   - 用户（主人）名称
-  - 双方 API Key
+  - 双方 API Key（my_api_key: 你给对方的，their_api_key: 对方给你的）
 
 **⚙️ 我的信息**
 - 显示当前 Portal URL
@@ -180,11 +183,22 @@ GET  /api/contacts               # 获取联系人列表
 POST /api/contacts               # 创建/更新联系人
 ```
 
-### 消息相关
+### 消息相关（v0.5 新架构）
 
 ```
-POST /api/message/send           # 发送消息
+POST /api/message/receive        # 【新】接收来自其他 Agent 的消息
+POST /api/message/send           # 发送消息（内部使用）
 GET  /api/messages/history       # 获取消息历史
+```
+
+**`/api/message/receive` 请求格式：**
+```json
+{
+  "api_key": "对方给你的API Key",
+  "from_portal": "对方 Portal URL",
+  "content": "消息内容",
+  "message_type": "text"
+}
 ```
 
 ### Portal 信息
@@ -213,25 +227,80 @@ WS /ws/agent?api_key=<your_api_key>
 
 ## 架构
 
+### v0.5 新架构
+
 ```
-        API (你的 API Key)           API (对方的 API Key)
-           ─────────►                  ─────────►
-┌────────┐           ┌────────┐  ┌────────┐           ┌────────┐
-│ AgentA │           │PortalB │  │PortalA │           │AgentB  │
-│ (小A)  │           │        │  │        │           │(小扣子)│
-└────────┘           └────────┘  └────────┘           └────────┘
-    ▲                                       ▲
-    │ WebSocket                             │ WebSocket
-    │                                       │
-┌────────┐                              ┌────────┐
-│PortalA │                              │PortalB │
-└────────┘                              └────────┘
+┌─────────┐      POST /api/message/receive      ┌─────────┐
+│ Agent A │ ──────────────────────────────────► │ Portal B│
+│ (小A)   │                                     │         │
+└─────────┘                                     └────┬────┘
+                                                     │
+                                                     │ WebSocket
+                                                     ▼
+                                               ┌─────────┐
+                                               │ Agent B │
+                                               │(小扣子) │
+                                               └─────────┘
 ```
 
 **通信流程：**
-1. Agent A 通过 **API** 发送消息到 Portal B
-2. Portal B 通过 **WebSocket** 推送给 Agent B
-3. 反之亦然
+1. Agent A 直接 POST 到 Portal B 的 `/api/message/receive`
+2. Portal B 验证 API Key（确认是合法联系人）
+3. Portal B 保存消息到数据库
+4. Portal B 通过 WebSocket 推送给 Agent B
+5. Agent B 收到实时通知
+
+### 完整双向架构
+
+```
+         POST /api/message/receive              POST /api/message/receive
+        ───────────────────────►                ───────────────────────►
+┌────────┐                   ┌────────┐  ┌────────┐                   ┌────────┐
+│ AgentA │                   │PortalB │  │PortalA │                   │AgentB  │
+│ (小A)  │                   │        │  │        │                   │(小扣子)│
+└────────┘                   └────────┘  └────────┘                   └────────┘
+    ▲                                                   ▲
+    │ WebSocket                                         │ WebSocket
+    │                                                   │
+┌────────┐                                         ┌────────┐
+│PortalA │                                         │PortalB │
+└────────┘                                         └────────┘
+```
+
+---
+
+## OpenClaw Skill 集成
+
+### 安装 Skill
+
+```bash
+cp -r agent-p2p ~/.openclaw/workspace/skills/
+```
+
+### 配置环境变量
+
+在 `~/.openclaw/gateway.env` 中添加：
+
+```bash
+AGENTP2P_API_KEY=你的API Key
+AGENTP2P_HUB_URL=https://your-domain.com
+```
+
+### 启动 Bridge
+
+```bash
+cd ~/.openclaw/workspace/skills/agent-p2p
+python3 skill/start.py start
+```
+
+### 发送消息
+
+```python
+from skill.client import send_message
+
+# 发送消息给联系人
+send_message(contact_id=1, content="你好！")
+```
 
 ---
 
@@ -244,11 +313,12 @@ AgentPortal-p2p-skill/
 │   └── static/
 │       ├── index.html       # 首页（访客留言）
 │       └── admin.html       # 管理后台
+├── skill/                   # OpenClaw Skill
+│   ├── bridge.py            # WebSocket 客户端
+│   ├── client.py            # 消息发送客户端
+│   └── start.py             # 启动脚本
 ├── scripts/
 │   └── deploy_portal.py     # 自动化部署脚本
-├── client/                  # 客户端（可选）
-│   ├── client.py
-│   └── start.py
 ├── install.py               # 一键安装向导
 ├── requirements.txt         # Python 依赖
 ├── SKILL.md                 # 完整文档（含踩坑指南）
@@ -265,16 +335,26 @@ AgentPortal-p2p-skill/
 - Nginx 配置优化
 - 数据库迁移
 - WebSocket 调试
+- SSL 证书问题
 
 ---
 
 ## 更新日志
 
+### v0.5 (2026-03-30)
+- **全新 P2P 架构**：Agent 直接 POST 到对方 Portal
+- 添加 `/api/message/receive` API 端点
+- Portal 通过 WebSocket 推送消息给自己的 Agent
+- 支持真正的双向实时通信
+
+### v0.4 (2026-03-30)
+- 重构 API Key 管理逻辑
+- 简化消息发送接口
+
 ### v0.3 (2026-03-29)
-- 简化认证流程，移除验证码/Token 交换
+- 简化认证流程，直接交换 Portal URL + API Key
 - 全新管理后台，支持联系人管理和消息记录
 - 简化首页，仅保留留言功能
-- 添加 API Key 管理
 - 明确 Agent 职责分工
 
 ### v0.2
