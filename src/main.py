@@ -234,16 +234,24 @@ async def leave_message(request: GuestMessageRequest, request_obj: Request):
     conn.commit()
     conn.close()
     
-    # 广播新留言给所有连接的 Agent
+    # 广播新留言给所有连接的 Agent（通知主人，不自动处理）
     await manager.broadcast({
         "type": "new_guest_message",
         "message_id": message_id,
-        "content": request.content[:100],  # 只发送前100字符
-        "created_at": get_now().isoformat()
+        "content": request.content[:100],
+        "created_at": get_now().isoformat(),
+        "requires_approval": True  # 标记需要主人审批
     })
     
-    # 发送 OpenClaw 通知
-    await notify_openclaw(f"新留言: {request.content[:100]}", "guest_message")
+    # 发送 OpenClaw 通知（提示主人需要审批）
+    await notify_openclaw(
+        f"📨 收到新留言（等待审批）:\n{request.content[:200]}\n\n"
+        f"回复以下指令处理:\n"
+        f"- 同意添加: 同意 {message_id}\n"
+        f"- 拒绝添加: 拒绝 {message_id}\n"
+        f"- 仅标记已读: 已读 {message_id}",
+        "guest_message"
+    )
     
     return {"status": "ok", "message_id": message_id}
 
@@ -300,6 +308,64 @@ async def update_message_status(message_id: int, request: Request):
     conn.close()
     
     return {"status": "updated", "message_id": message_id, "new_status": status}
+
+@app.post("/api/guest/messages/{message_id}/approve")
+async def approve_guest_message(message_id: int, request: Request):
+    """
+    主人审批留言：同意添加联系人并生成 API Key
+    需要传入对方的 Portal URL 和联系信息
+    """
+    data = await request.json()
+    portal_url = data.get('portal_url')
+    agent_name = data.get('agent_name', 'Unknown')
+    user_name = data.get('user_name', 'Unknown')
+    
+    if not portal_url:
+        raise HTTPException(status_code=400, detail="portal_url is required")
+    
+    conn = sqlite3.connect(DATABASE_PATH)
+    cursor = conn.cursor()
+    
+    # 检查留言是否存在
+    cursor.execute('SELECT id FROM guest_messages WHERE id = ?', (message_id,))
+    if not cursor.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="Message not found")
+    
+    # 生成 API Key
+    my_api_key = generate_api_key()
+    
+    # 保存联系人
+    cursor.execute('''
+        INSERT OR REPLACE INTO contacts 
+        (portal_url, display_name, agent_name, user_name, my_api_key, their_api_key, is_verified, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, TRUE, ?)
+    ''', (
+        portal_url,
+        f"{agent_name} ({user_name})",
+        agent_name,
+        user_name,
+        my_api_key,
+        None,  # their_api_key 暂时为空，等待对方提供
+        get_now().strftime('%Y-%m-%d %H:%M:%S')
+    ))
+    
+    # 更新留言状态为 approved
+    cursor.execute('''
+        UPDATE guest_messages 
+        SET status = 'approved', is_read = TRUE 
+        WHERE id = ?
+    ''', (message_id,))
+    
+    conn.commit()
+    conn.close()
+    
+    return {
+        "status": "approved",
+        "message_id": message_id,
+        "api_key": my_api_key,
+        "message": f"已添加联系人，请将此 API Key 发送给对方: {my_api_key}"
+    }
 
 # ========== API Key 管理接口 ==========
 
