@@ -149,6 +149,13 @@ class AgentP2PSkill:
             logger.debug('收到心跳响应')
             return
         
+        # 处理 Portal 的心跳 ping，回复 pong 保持连接
+        if msg_type == 'ping':
+            logger.debug('收到ping，回复pong')
+            if self.ws:
+                await self.ws.send(json.dumps({'type': 'pong'}))
+            return
+        
         notification = None
         
         if msg_type == 'new_guest_message':
