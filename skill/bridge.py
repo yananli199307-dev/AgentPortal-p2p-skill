@@ -112,17 +112,31 @@ class AgentP2PSkill:
             return False
     
     def _format_notification(self, notification: dict) -> str:
-        """格式化通知文本"""
+        """格式化通知文本（飞书风格）"""
         msg_type = notification.get('type')
         
         if msg_type == 'guest_message':
             content = notification.get('content', '')
-            return f'📨 收到新留言: {content[:100]}'
+            return f'''📨 **收到新留言**
+
+{content[:200]}
+
+---
+💡 回复 "查看留言" 查看详情，或 "回复 [内容]" 直接回复''' 
         
         elif msg_type == 'message':
             sender = notification.get('sender', '未知')
             content = notification.get('content', '')
-            return f'💬 收到来自 {sender} 的消息: {content[:100]}'
+            return f'''💬 **收到来自 {sender} 的消息**
+
+{content[:200]}
+
+---
+💡 回复 "回复 [内容]" 直接回复消息'''
+        
+        elif msg_type == 'system':
+            content = notification.get('content', '')
+            return f'🔔 **系统通知**: {content}'
         
         else:
             return f'📢 收到通知: {json.dumps(notification, ensure_ascii=False)[:100]}'
@@ -139,22 +153,32 @@ class AgentP2PSkill:
         
         if msg_type == 'new_guest_message':
             content = data.get('content', '')
+            msg_id = data.get('id')
             logger.info(f'新留言: {content[:50]}...')
             notification = {
                 'type': 'guest_message',
                 'content': content,
-                'timestamp': datetime.now().isoformat()
+                'message_id': msg_id,
+                'priority': 'normal',
+                'timestamp': datetime.now().isoformat(),
+                'actions': ['查看', '回复', '忽略']
             }
         
         elif msg_type == 'new_message':
             from_portal = data.get('from', '')
+            from_name = data.get('from_name', from_portal)
             content = data.get('content', '')
+            msg_id = data.get('id')
             logger.info(f'新消息来自 {from_portal}: {content[:50]}...')
             notification = {
                 'type': 'message',
                 'sender': from_portal,
+                'sender_name': from_name,
                 'content': content,
-                'timestamp': datetime.now().isoformat()
+                'message_id': msg_id,
+                'priority': 'high',
+                'timestamp': datetime.now().isoformat(),
+                'actions': ['回复', '查看历史']
             }
             
             # 发送确认
