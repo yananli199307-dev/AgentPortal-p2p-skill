@@ -16,9 +16,9 @@ Agent P2P 是一个去中心化的 Agent 通信平台：
 
 | 项目 | 用途 | 示例 |
 |------|------|------|
-| VPS IP | 部署服务器 | 43.156.110.184 |
-| 域名 | 访问 Portal | agentportalp2p.com |
-| 邮箱 | SSL 证书申请 | user@example.com |
+| VPS IP | 部署服务器 | <你的VPS_IP> |
+| 域名 | 访问 Portal | <你的域名> |
+| 邮箱 | SSL 证书申请 | <你的邮箱> |
 | SSH 私钥 | 远程连接 VPS | ~/.ssh/id_rsa |
 
 ### VPS 要求
@@ -59,10 +59,10 @@ python3 scripts/deploy_portal.py \
 **示例：**
 ```bash
 python3 scripts/deploy_portal.py \
-  --host 43.156.110.184 \
+  --host YOUR_VPS_IP \
   --ssh-key ~/.ssh/id_rsa \
-  --domain agentportalp2p.com \
-  --email user@example.com
+  --domain your-domain.com \
+  --email your@email.com
 ```
 
 ### 步骤 3: 等待部署完成

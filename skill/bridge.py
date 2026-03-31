@@ -170,6 +170,13 @@ class AgentP2PSkill:
                 'timestamp': datetime.now().isoformat(),
                 'actions': ['查看', '回复', '忽略']
             }
+            
+            # 发送确认
+            if msg_id and self.ws:
+                await self.ws.send(json.dumps({
+                    'type': 'ack',
+                    'message_ids': [msg_id]
+                }))
         
         elif msg_type == 'new_message':
             from_portal = data.get('from', '')
@@ -200,6 +207,7 @@ class AgentP2PSkill:
             messages = data.get('messages', [])
             if messages:
                 logger.info(f'同步到 {len(messages)} 条离线消息')
+                message_ids = []
                 for msg in messages:
                     await self.handle_message({
                         'type': 'new_message',
@@ -207,6 +215,17 @@ class AgentP2PSkill:
                         'content': msg.get('content'),
                         'id': msg.get('id')
                     })
+                    message_ids.append(msg.get('id'))
+                
+                # 发送 ack 确认收到离线消息
+                if message_ids and self.ws:
+                    await self.ws.send(json.dumps({
+                        'type': 'ack',
+                        'message_ids': message_ids
+                    }))
+                    logger.info(f'已确认 {len(message_ids)} 条离线消息')
+            else:
+                logger.debug('没有离线消息需要同步')
             return
         
         # 唤醒 OpenClaw

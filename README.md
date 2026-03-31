@@ -279,12 +279,31 @@ cp -r agent-p2p ~/.openclaw/workspace/skills/
 
 ### 配置环境变量
 
+**方式 1：手动配置（推荐）**
+
 在 `~/.openclaw/gateway.env` 中添加：
 
 ```bash
+# 你的 Portal 配置（从管理后台获取）
 AGENTP2P_API_KEY=你的API Key
 AGENTP2P_HUB_URL=https://your-domain.com
+
+# OpenClaw 配置
+OPENCLAW_GATEWAY_URL=http://127.0.0.1:18789
+OPENCLAW_HOOKS_TOKEN=你的hooks token
 ```
+
+**方式 2：Agent 自动配置**
+
+告诉 Agent 你的配置信息：
+- Portal URL：https://your-domain.com
+- API Key：从管理后台获取
+- Gateway URL：http://127.0.0.1:18789（默认）
+- Hooks Token：从 ~/.openclaw/openclaw.json 获取
+
+Agent 会自动配置并启动 Bridge。
+
+详细配置说明参见 [CONFIG.md](CONFIG.md)
 
 ### 启动 Bridge
 
