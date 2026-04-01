@@ -16,6 +16,19 @@ metadata:
               ],
             "bins": ["python3", "ssh"],
           },
+        "install":
+          {
+            "warning": "本 Skill 包含安装脚本，会执行以下操作：",
+            "actions":
+              [
+                "本地：pip 安装依赖",
+                "本地：写入配置文件 ~/.openclaw/gateway.env",
+                "远程（可选）：SSH 到 VPS 部署 Portal",
+                "远程（可选）：配置 systemd 服务",
+              ],
+            "note": "安装前请审查 install.py 和 scripts/deploy_portal.py 代码",
+            "manual": true,
+          },
       },
   }
 ---
