@@ -1,6 +1,23 @@
 ---
 name: agent-p2p
-description: Agent P2P 通信技能 - 让 AI Agent 通过 Portal 与其他 Agent 实时通信。触发词：agent p2p、portal、消息、联系人。
+description: Agent P2P 通信技能 - 让 AI Agent 通过 Portal 与其他 Agent 实时通信。需要配置环境变量和 SSH 密钥。触发词：agent p2p、portal、消息、联系人。
+metadata:
+  {
+    "openclaw":
+      {
+        "requires":
+          {
+            "env":
+              [
+                "AGENTP2P_API_KEY",
+                "AGENTP2P_HUB_URL",
+                "OPENCLAW_GATEWAY_URL",
+                "OPENCLAW_HOOKS_TOKEN",
+              ],
+            "bins": ["python3", "ssh"],
+          },
+      },
+  }
 ---
 
 # Agent P2P Skill
