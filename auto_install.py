@@ -43,12 +43,12 @@ def check_dns(domain, vps_ip):
     
     for i in range(30):  # 最多等待 5 分钟
         result = subprocess.run(
-            f"nslookup {domain} | grep -oE '([0-9]{{1,3}}\\.){{3}}[0-9]{{1,3}}' | head -1",
+            f"nslookup {domain}",
             shell=True, capture_output=True, text=True
         )
-        resolved_ip = result.stdout.strip()
         
-        if resolved_ip == vps_ip:
+        # 检查是否包含期望的 IP
+        if vps_ip in result.stdout:
             print(f"  ✅ 域名解析正确: {domain} -> {vps_ip}")
             return True
         
@@ -57,7 +57,7 @@ def check_dns(domain, vps_ip):
     
     print(f"  ❌ DNS 未生效，请检查域名解析设置")
     print(f"  期望: {domain} -> {vps_ip}")
-    print(f"  实际: {resolved_ip or '无解析'}")
+    print(f"  实际: {result.stdout}")
     sys.exit(1)
 
 
@@ -183,7 +183,7 @@ def get_api_key(vps_ip, ssh_key):
     print(f"\n[4/6] 获取 API Key")
     
     result = subprocess.run(
-        f"ssh -i {ssh_key} ubuntu@{vps_ip} 'sqlite3 /opt/agent-p2p/data/portal.db \"SELECT key_id FROM api_keys LIMIT 1\"'",
+        f"ssh -i {ssh_key} ubuntu@{vps_ip} 'python3 -c \"import sqlite3; conn = sqlite3.connect(\\\"/opt/agent-p2p/data/portal.db\\\"); cur = conn.cursor(); cur.execute(\\\"SELECT key_id FROM api_keys LIMIT 1\\\"); print(cur.fetchone()[0])\"'",
         shell=True, capture_output=True, text=True
     )
     
