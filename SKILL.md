@@ -18,16 +18,16 @@ metadata:
           },
         "install":
           {
-            "warning": "本 Skill 包含安装脚本，会执行以下操作：",
+            "warning": "Agent 将自动执行安装脚本，会执行以下操作：",
             "actions":
               [
-                "本地：pip 安装依赖",
-                "本地：写入配置文件 ~/.openclaw/gateway.env",
-                "远程（可选）：SSH 到 VPS 部署 Portal",
-                "远程（可选）：配置 systemd 服务",
+                "本地：Agent 执行 pip 安装依赖",
+                "本地：Agent 写入配置文件 ~/.openclaw/gateway.env",
+                "远程（可选）：Agent SSH 到 VPS 部署 Portal",
+                "远程（可选）：Agent 配置 systemd 服务",
               ],
-            "note": "安装前请审查 install.py 和 scripts/deploy_portal.py 代码",
-            "manual": true,
+            "note": "Agent 会在执行前向用户确认每一步操作",
+            "auto": true,
           },
       },
   }
