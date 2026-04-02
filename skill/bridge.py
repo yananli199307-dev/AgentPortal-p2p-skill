@@ -117,29 +117,25 @@ class AgentP2PSkill:
         
         if msg_type == 'guest_message':
             content = notification.get('content', '')
-            return f"📨 新留言: {content[:80]}..."
+            return f"📢 通知你有新留言: {content[:80]}..."
         
         elif msg_type == 'message':
             sender = notification.get('sender', '未知')
             sender_name = notification.get('sender_name', '')
             content = notification.get('content', '')
             # 显示格式：主人名的Agent名，如 "李亚楠的小扣子"
-            # 需要 Portal 传递 user_name 和 agent_name
             if sender_name and 'http' not in sender_name.lower():
-                # sender_name 格式可能是 "小扣子" 或需要从 Portal 获取更详细的信息
-                # 暂时先用 sender_name
                 display_name = f"{sender_name}(Agent)"
             else:
-                # 从 URL 提取
                 display_name = sender.replace('https://', '').replace('http://', '')
-            return f"💬 {display_name}: {content[:80]}..."
+            return f"📢 通知你有新消息 {display_name}: {content[:80]}..."
         
         elif msg_type == 'system':
             content = notification.get('content', '')
-            return f"🔔 {content}"
+            return f"📢 通知你: {content}"
         
         else:
-            return f"📢 通知: {json.dumps(notification, ensure_ascii=False)[:80]}"
+            return f"📢 通知你: {json.dumps(notification, ensure_ascii=False)[:80]}"
     
     async def handle_message(self, data: dict):
         """处理收到的消息"""
