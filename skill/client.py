@@ -12,11 +12,13 @@ from typing import Optional
 
 class AgentP2PClient:
     """Agent P2P 消息客户端"""
-    
+
     def __init__(self):
         self.api_key = os.environ.get('AGENTP2P_API_KEY')
         self.hub_url = os.environ.get('AGENTP2P_HUB_URL', 'https://your-domain.com')
-        
+        # 默认验证 SSL，设置环境变量 AGENTP2P_SKIP_SSL=1 可跳过（仅限开发测试）
+        self._verify_ssl = not (os.environ.get('AGENTP2P_SKIP_SSL', '').lower() in ('1', 'true', 'yes'))
+
         if not self.api_key:
             raise ValueError('AGENTP2P_API_KEY 未设置')
     
@@ -25,10 +27,10 @@ class AgentP2PClient:
         url = f'{self.hub_url}/api/contacts'
         headers = {'Authorization': f'Bearer {self.api_key}'}
         
-        resp = requests.get(url, headers=headers, verify=False)
+        resp = requests.get(url, headers=headers, verify=self._verify_ssl)
         resp.raise_for_status()
         return resp.json()
-    
+
     def send_message_direct(self, to_portal: str, their_api_key: str, content: str, message_type: str = 'text') -> dict:
         """
         直接发送消息到对方 Portal
@@ -53,7 +55,7 @@ class AgentP2PClient:
             'message_type': message_type
         }
         
-        resp = requests.post(url, json=data, verify=False)
+        resp = requests.post(url, json=data, verify=self._verify_ssl)
         resp.raise_for_status()
         return resp.json()
     
@@ -96,7 +98,7 @@ class AgentP2PClient:
             'limit': limit
         }
         
-        resp = requests.get(url, headers=headers, params=params, verify=False)
+        resp = requests.get(url, headers=headers, params=params, verify=self._verify_ssl)
         resp.raise_for_status()
         return resp.json()
 

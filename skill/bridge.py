@@ -41,6 +41,8 @@ class AgentP2PSkill:
         self.hub_url = os.environ.get('AGENTP2P_HUB_URL', 'https://your-domain.com')
         self.gateway_url = os.environ.get('OPENCLAW_GATEWAY_URL', 'http://127.0.0.1:18789')
         self.hooks_token = os.environ.get('OPENCLAW_HOOKS_TOKEN')
+        # 默认验证 SSL，设置环境变量 AGENTP2P_SKIP_SSL=1 可跳过（仅限开发测试）
+        self.skip_ssl = os.environ.get('AGENTP2P_SKIP_SSL', '').lower() in ('1', 'true', 'yes')
         
         self.ws = None
         self.running = True
@@ -238,11 +240,13 @@ class AgentP2PSkill:
         ws_url = f'{ws_url}/ws/agent?api_key={self.api_key}'
         
         logger.info(f'连接 Portal: {ws_url[:60]}...')
-        
-        # 创建 SSL 上下文（跳过验证，仅用于测试）
+
+        # SSL 上下文：默认验证证书，可通过环境变量跳过（仅限开发测试）
         ssl_context = ssl.create_default_context()
-        ssl_context.check_hostname = False
-        ssl_context.verify_mode = ssl.CERT_NONE
+        if self.skip_ssl:
+            logger.warning('⚠️ SSL 证书验证已跳过（仅限开发测试环境）')
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
         
         try:
             async with websockets.connect(ws_url, ssl=ssl_context) as websocket:

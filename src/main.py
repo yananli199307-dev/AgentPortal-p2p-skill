@@ -1,21 +1,26 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends, File, UploadFile, Request, BackgroundTasks
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends, File, UploadFile, Request, BackgroundTasks, Header
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from typing import Optional, List
 from pathlib import Path
+from contextlib import contextmanager
 import sqlite3
 import json
 import secrets
 import hashlib
+import logging
 from datetime import datetime, timedelta
 import pytz
 import os
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Agent P2P Portal")
 
 # 配置
 DATABASE_PATH = os.getenv("DATABASE_PATH", "./data/portal.db")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
 
 # 时区设置
 TZ = pytz.timezone('Asia/Shanghai')
@@ -37,6 +42,49 @@ def format_datetime(dt):
 
 # 确保数据目录存在
 os.makedirs(os.path.dirname(DATABASE_PATH), exist_ok=True)
+
+# 数据库连接管理器 - 确保连接始终被关闭
+@contextmanager
+def get_db():
+    """安全的数据库连接上下文管理器，确保连接始终被关闭"""
+    conn = sqlite3.connect(DATABASE_PATH)
+    try:
+        yield conn
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+# Admin 认证依赖
+async def verify_admin(authorization: Optional[str] = Header(None)):
+    """验证管理后台的 Admin 认证
+
+    支持 Basic Auth: Authorization: Basic base64(admin:password)
+    支持 Bearer Token: Authorization: Bearer <admin_password>
+    """
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Authorization header required")
+
+    import base64
+
+    if authorization.startswith("Basic "):
+        try:
+            decoded = base64.b64decode(authorization[6:]).decode("utf-8")
+            username, password = decoded.split(":", 1)
+            if username == "admin" and password == ADMIN_PASSWORD:
+                return True
+        except Exception:
+            pass
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    elif authorization.startswith("Bearer "):
+        token = authorization[7:]
+        if token == ADMIN_PASSWORD:
+            return True
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    raise HTTPException(status_code=401, detail="Invalid authorization format")
 
 # 数据库初始化
 def init_db():
@@ -106,7 +154,19 @@ def init_db():
             is_active BOOLEAN DEFAULT TRUE
         )
     ''')
-    
+
+    # 待通知表
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS pending_notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            type TEXT NOT NULL,
+            content TEXT NOT NULL,
+            portal TEXT NOT NULL,
+            is_notified BOOLEAN DEFAULT FALSE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
     conn.commit()
     conn.close()
 
@@ -149,37 +209,34 @@ def generate_api_key() -> str:
 
 def verify_api_key(api_key: str) -> Optional[str]:
     """验证 API Key，返回对应的 portal_url
-    
+
     检查两个地方：
     1. api_keys 表 - 我自己生成的 Key（用于 WebSocket 连接）
     2. contacts 表 - 联系人给我的 Key（their_api_key，用于验证对方身份）
     """
-    conn = sqlite3.connect(DATABASE_PATH)
-    cursor = conn.cursor()
-    
-    # 1. 检查是否是我自己的 Key
-    cursor.execute('''
-        SELECT portal_url FROM api_keys 
-        WHERE key_id = ? AND is_active = TRUE
-    ''', (api_key,))
-    
-    result = cursor.fetchone()
-    if result:
-        conn.close()
-        return result[0]
-    
-    # 2. 检查是否是某个联系人给我的 Key（their_api_key）
-    cursor.execute('''
-        SELECT portal_url FROM contacts 
-        WHERE their_api_key = ?
-    ''', (api_key,))
-    
-    result = cursor.fetchone()
-    conn.close()
-    
-    if result:
-        return result[0]
-    return None
+    with get_db() as conn:
+        cursor = conn.cursor()
+
+        # 1. 检查是否是我自己的 Key
+        cursor.execute('''
+            SELECT portal_url FROM api_keys
+            WHERE key_id = ? AND is_active = TRUE
+        ''', (api_key,))
+
+        result = cursor.fetchone()
+        if result:
+            return result[0]
+
+        # 2. 检查是否是某个联系人给我的 Key（their_api_key）
+        cursor.execute('''
+            SELECT portal_url FROM contacts
+            WHERE their_api_key = ?
+        ''', (api_key,))
+
+        result = cursor.fetchone()
+        if result:
+            return result[0]
+        return None
 
 def get_my_portal_url() -> str:
     """获取当前 Portal 的 URL（从环境变量或配置）"""
@@ -189,50 +246,36 @@ def get_my_portal_url() -> str:
 
 async def notify_openclaw(content: str, message_type: str = "guest_message"):
     """发送通知到 OpenClaw
-    
+
     当前实现：记录到待通知队列，由 Agent 通过心跳检查拉取
     """
     try:
-        conn = sqlite3.connect(DATABASE_PATH)
-        cursor = conn.cursor()
-        
-        # 保存到待通知表
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS pending_notifications (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                type TEXT NOT NULL,
-                content TEXT NOT NULL,
-                portal TEXT NOT NULL,
-                is_notified BOOLEAN DEFAULT FALSE,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-        
-        cursor.execute('''
-            INSERT INTO pending_notifications (type, content, portal)
-            VALUES (?, ?, ?)
-        ''', (message_type, content, get_my_portal_url()))
-        
-        conn.commit()
-        conn.close()
-        print(f"[OpenClaw Notify] Queued: {content[:50]}...")
+        with get_db() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute('''
+                INSERT INTO pending_notifications (type, content, portal)
+                VALUES (?, ?, ?)
+            ''', (message_type, content, get_my_portal_url()))
+
+            conn.commit()
+        logger.info(f"[OpenClaw Notify] Queued: {content[:50]}...")
     except Exception as e:
-        print(f"[OpenClaw Notify] Failed: {e}")
+        logger.error(f"[OpenClaw Notify] Failed: {e}")
 
 @app.post("/api/guest/leave-message")
 async def leave_message(request: GuestMessageRequest, request_obj: Request):
     """匿名留言"""
-    conn = sqlite3.connect(DATABASE_PATH)
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        INSERT INTO guest_messages (content, ip_address, user_agent, created_at)
-        VALUES (?, ?, ?, ?)
-    ''', (request.content, request_obj.client.host, request_obj.headers.get("user-agent"), get_now().strftime('%Y-%m-%d %H:%M:%S')))
-    
-    message_id = cursor.lastrowid
-    conn.commit()
-    conn.close()
+    with get_db() as conn:
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            INSERT INTO guest_messages (content, ip_address, user_agent, created_at)
+            VALUES (?, ?, ?, ?)
+        ''', (request.content, request_obj.client.host, request_obj.headers.get("user-agent"), get_now().strftime('%Y-%m-%d %H:%M:%S')))
+
+        message_id = cursor.lastrowid
+        conn.commit()
     
     # 广播新留言给所有连接的 Agent（通知主人，不自动处理）
     await manager.broadcast({
@@ -256,20 +299,19 @@ async def leave_message(request: GuestMessageRequest, request_obj: Request):
     return {"status": "ok", "message_id": message_id}
 
 @app.get("/api/guest/messages")
-async def get_guest_messages():
-    """获取匿名留言列表"""
-    conn = sqlite3.connect(DATABASE_PATH)
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        SELECT id, content, created_at, is_read, status 
-        FROM guest_messages 
-        ORDER BY created_at DESC
-    ''')
-    
-    messages = cursor.fetchall()
-    conn.close()
-    
+async def get_guest_messages(_admin: bool = Depends(verify_admin)):
+    """获取匿名留言列表（需要 Admin 认证）"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            SELECT id, content, created_at, is_read, status
+            FROM guest_messages
+            ORDER BY created_at DESC
+        ''')
+
+        messages = cursor.fetchall()
+
     return {
         "messages": [
             {"id": m[0], "content": m[1], "created_at": m[2], "is_read": m[3], "status": m[4] or 'pending'}
@@ -278,88 +320,85 @@ async def get_guest_messages():
     }
 
 @app.post("/api/guest/messages/{message_id}/status")
-async def update_message_status(message_id: int, request: Request):
-    """更新留言状态（approved/rejected/read）"""
+async def update_message_status(message_id: int, request: Request, _admin: bool = Depends(verify_admin)):
+    """更新留言状态（approved/rejected/read）（需要 Admin 认证）"""
     data = await request.json()
     status = data.get('status')
-    
+
     if status not in ['approved', 'rejected', 'read']:
         raise HTTPException(status_code=400, detail="Invalid status. Must be 'approved', 'rejected', or 'read'")
-    
-    conn = sqlite3.connect(DATABASE_PATH)
-    cursor = conn.cursor()
-    
-    # read 状态只标记已读，不改变 status 字段
-    if status == 'read':
-        cursor.execute('''
-            UPDATE guest_messages 
-            SET is_read = TRUE 
-            WHERE id = ?
-        ''', (message_id,))
-    else:
-        # approved/rejected 更新状态并标记已读
-        cursor.execute('''
-            UPDATE guest_messages 
-            SET status = ?, is_read = TRUE 
-            WHERE id = ?
-        ''', (status, message_id))
-    
-    conn.commit()
-    conn.close()
-    
+
+    with get_db() as conn:
+        cursor = conn.cursor()
+
+        # read 状态只标记已读，不改变 status 字段
+        if status == 'read':
+            cursor.execute('''
+                UPDATE guest_messages
+                SET is_read = TRUE
+                WHERE id = ?
+            ''', (message_id,))
+        else:
+            # approved/rejected 更新状态并标记已读
+            cursor.execute('''
+                UPDATE guest_messages
+                SET status = ?, is_read = TRUE
+                WHERE id = ?
+            ''', (status, message_id))
+
+        conn.commit()
+
     return {"status": "updated", "message_id": message_id, "new_status": status}
 
 @app.post("/api/guest/messages/{message_id}/approve")
-async def approve_guest_message(message_id: int, request: Request):
+async def approve_guest_message(message_id: int, request: Request, _admin: bool = Depends(verify_admin)):
     """
-    主人审批留言：同意添加联系人并生成 API Key
+    主人审批留言：同意添加联系人并生成 API Key（需要 Admin 认证）
     需要传入对方的 Portal URL 和联系信息
     """
     data = await request.json()
     portal_url = data.get('portal_url')
     agent_name = data.get('agent_name', 'Unknown')
     user_name = data.get('user_name', 'Unknown')
-    
+
     if not portal_url:
         raise HTTPException(status_code=400, detail="portal_url is required")
-    
-    conn = sqlite3.connect(DATABASE_PATH)
-    cursor = conn.cursor()
-    
-    # 检查留言是否存在
-    cursor.execute('SELECT id FROM guest_messages WHERE id = ?', (message_id,))
-    if not cursor.fetchone():
-        conn.close()
-        raise HTTPException(status_code=404, detail="Message not found")
-    
-    # 生成 API Key
-    my_api_key = generate_api_key()
-    
-    # 保存联系人
-    cursor.execute('''
-        INSERT OR REPLACE INTO contacts 
-        (portal_url, display_name, agent_name, user_name, my_api_key, their_api_key, is_verified, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, TRUE, ?)
-    ''', (
-        portal_url,
-        f"{agent_name} ({user_name})",
-        agent_name,
-        user_name,
-        my_api_key,
-        None,  # their_api_key 暂时为空，等待对方提供
-        get_now().strftime('%Y-%m-%d %H:%M:%S')
-    ))
-    
-    # 更新留言状态为 approved
-    cursor.execute('''
-        UPDATE guest_messages 
-        SET status = 'approved', is_read = TRUE 
-        WHERE id = ?
-    ''', (message_id,))
-    
-    conn.commit()
-    conn.close()
-    
+
+    with get_db() as conn:
+        cursor = conn.cursor()
+
+        # 检查留言是否存在
+        cursor.execute('SELECT id FROM guest_messages WHERE id = ?', (message_id,))
+        if not cursor.fetchone():
+            raise HTTPException(status_code=404, detail="Message not found")
+
+        # 生成 API Key
+        my_api_key = generate_api_key()
+
+        # 保存联系人
+        cursor.execute('''
+            INSERT OR REPLACE INTO contacts
+            (portal_url, display_name, agent_name, user_name, my_api_key, their_api_key, is_verified, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, TRUE, ?)
+        ''', (
+            portal_url,
+            f"{agent_name} ({user_name})",
+            agent_name,
+            user_name,
+            my_api_key,
+            None,  # their_api_key 暂时为空，等待对方提供
+            get_now().strftime('%Y-%m-%d %H:%M:%S')
+        ))
+
+        # 更新留言状态为 approved
+        cursor.execute('''
+            UPDATE guest_messages
+            SET status = 'approved', is_read = TRUE
+            WHERE id = ?
+        ''', (message_id,))
+
+        conn.commit()
+
     return {
         "status": "approved",
         "message_id": message_id,
@@ -370,21 +409,20 @@ async def approve_guest_message(message_id: int, request: Request):
 # ========== API Key 管理接口 ==========
 
 @app.post("/api/key/create")
-async def create_api_key(request: ApiKeyCreateRequest):
-    """创建新的 API Key"""
+async def create_api_key(request: ApiKeyCreateRequest, _admin: bool = Depends(verify_admin)):
+    """创建新的 API Key（需要 Admin 认证）"""
     api_key = generate_api_key()
-    
-    conn = sqlite3.connect(DATABASE_PATH)
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        INSERT INTO api_keys (key_id, portal_url, agent_name, user_name, created_at, is_active)
-        VALUES (?, ?, ?, ?, ?, TRUE)
-    ''', (api_key, request.portal_url, request.agent_name, request.user_name, get_now().strftime('%Y-%m-%d %H:%M:%S')))
-    
-    conn.commit()
-    conn.close()
-    
+
+    with get_db() as conn:
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            INSERT INTO api_keys (key_id, portal_url, agent_name, user_name, created_at, is_active)
+            VALUES (?, ?, ?, ?, ?, TRUE)
+        ''', (api_key, request.portal_url, request.agent_name, request.user_name, get_now().strftime('%Y-%m-%d %H:%M:%S')))
+
+        conn.commit()
+
     return {
         "status": "created",
         "api_key": api_key,
@@ -393,20 +431,19 @@ async def create_api_key(request: ApiKeyCreateRequest):
     }
 
 @app.get("/api/key/list")
-async def list_api_keys():
-    """列出所有 API Keys"""
-    conn = sqlite3.connect(DATABASE_PATH)
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        SELECT key_id, portal_url, agent_name, user_name, created_at, is_active
-        FROM api_keys
-        ORDER BY created_at DESC
-    ''')
-    
-    keys = cursor.fetchall()
-    conn.close()
-    
+async def list_api_keys(_admin: bool = Depends(verify_admin)):
+    """列出所有 API Keys（需要 Admin 认证）"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            SELECT key_id, portal_url, agent_name, user_name, created_at, is_active
+            FROM api_keys
+            ORDER BY created_at DESC
+        ''')
+
+        keys = cursor.fetchall()
+
     return {
         "api_keys": [
             {
@@ -423,47 +460,43 @@ async def list_api_keys():
     }
 
 @app.post("/api/key/revoke")
-async def revoke_api_key(api_key: str):
-    """撤销 API Key"""
-    conn = sqlite3.connect(DATABASE_PATH)
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        UPDATE api_keys SET is_active = FALSE WHERE key_id = ?
-    ''', (api_key,))
-    
-    conn.commit()
-    conn.close()
-    
+async def revoke_api_key(api_key: str, _admin: bool = Depends(verify_admin)):
+    """撤销 API Key（需要 Admin 认证）"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            UPDATE api_keys SET is_active = FALSE WHERE key_id = ?
+        ''', (api_key,))
+
+        conn.commit()
+
     return {"status": "revoked"}
 
 @app.post("/api/key/exchange")
-async def exchange_api_key(request: ApiKeyExchangeRequest):
-    """交换 API Key（建立好友关系）"""
-    my_portal = get_my_portal_url()
-    
-    conn = sqlite3.connect(DATABASE_PATH)
-    cursor = conn.cursor()
-    
-    # 生成我的 API Key 给对方
-    my_api_key = generate_api_key()
-    
-    # 保存 API Key 到数据库
-    cursor.execute('''
-        INSERT INTO api_keys (key_id, portal_url, agent_name, created_at, is_active)
-        VALUES (?, ?, ?, ?, TRUE)
-    ''', (my_api_key, request.portal_url, "friend", get_now().strftime('%Y-%m-%d %H:%M:%S')))
-    
-    # 保存联系人关系
-    cursor.execute('''
-        INSERT OR REPLACE INTO contacts 
-        (portal_url, api_key, their_api_key, is_verified, created_at)
-        VALUES (?, ?, ?, TRUE, ?)
-    ''', (request.portal_url, my_api_key, request.their_api_key, get_now().strftime('%Y-%m-%d %H:%M:%S')))
-    
-    conn.commit()
-    conn.close()
-    
+async def exchange_api_key(request: ApiKeyExchangeRequest, _admin: bool = Depends(verify_admin)):
+    """交换 API Key（建立好友关系）（需要 Admin 认证）"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+
+        # 生成我的 API Key 给对方
+        my_api_key = generate_api_key()
+
+        # 保存 API Key 到数据库
+        cursor.execute('''
+            INSERT INTO api_keys (key_id, portal_url, agent_name, created_at, is_active)
+            VALUES (?, ?, ?, ?, TRUE)
+        ''', (my_api_key, request.portal_url, "friend", get_now().strftime('%Y-%m-%d %H:%M:%S')))
+
+        # 保存联系人关系（修复：使用正确的列名 my_api_key 而非 api_key）
+        cursor.execute('''
+            INSERT OR REPLACE INTO contacts
+            (portal_url, my_api_key, their_api_key, is_verified, created_at)
+            VALUES (?, ?, ?, TRUE, ?)
+        ''', (request.portal_url, my_api_key, request.their_api_key, get_now().strftime('%Y-%m-%d %H:%M:%S')))
+
+        conn.commit()
+
     return {
         "status": "exchanged",
         "api_key": my_api_key,
@@ -477,52 +510,51 @@ async def get_message_history(
     contact_portal: str,
     limit: int = 50,
     offset: int = 0,
-    my_portal: str = ""
+    my_portal: str = "",
+    _admin: bool = Depends(verify_admin)
 ):
     """
-    获取与指定联系人的消息历史
+    获取与指定联系人的消息历史（需要 Admin 认证）
     按时间倒序排列，支持分页
     """
     if not my_portal:
         my_portal = get_my_portal_url()
-    
-    conn = sqlite3.connect(DATABASE_PATH)
-    cursor = conn.cursor()
-    
-    # 获取总消息数
-    cursor.execute('''
-        SELECT COUNT(*) FROM messages 
-        WHERE (from_portal = ? AND to_portal = ?) 
-           OR (from_portal = ? AND to_portal = ?)
-    ''', (my_portal, contact_portal, contact_portal, my_portal))
-    
-    total = cursor.fetchone()[0]
-    
-    # 获取消息列表（按时间倒序）
-    cursor.execute('''
-        SELECT id, from_portal, to_portal, content, message_type, created_at
-        FROM messages 
-        WHERE (from_portal = ? AND to_portal = ?) 
-           OR (from_portal = ? AND to_portal = ?)
-        ORDER BY created_at DESC
-        LIMIT ? OFFSET ?
-    ''', (my_portal, contact_portal, contact_portal, my_portal, limit, offset))
-    
-    messages = []
-    for row in cursor.fetchall():
-        msg_type = "sent" if row[1] == my_portal else "received"
-        messages.append({
-            "id": row[0],
-            "type": msg_type,
-            "from": row[1],
-            "to": row[2],
-            "content": row[3],
-            "message_type": row[4],
-            "created_at": row[5]
-        })
-    
-    conn.close()
-    
+
+    with get_db() as conn:
+        cursor = conn.cursor()
+
+        # 获取总消息数
+        cursor.execute('''
+            SELECT COUNT(*) FROM messages
+            WHERE (from_portal = ? AND to_portal = ?)
+               OR (from_portal = ? AND to_portal = ?)
+        ''', (my_portal, contact_portal, contact_portal, my_portal))
+
+        total = cursor.fetchone()[0]
+
+        # 获取消息列表（按时间倒序）
+        cursor.execute('''
+            SELECT id, from_portal, to_portal, content, message_type, created_at
+            FROM messages
+            WHERE (from_portal = ? AND to_portal = ?)
+               OR (from_portal = ? AND to_portal = ?)
+            ORDER BY created_at DESC
+            LIMIT ? OFFSET ?
+        ''', (my_portal, contact_portal, contact_portal, my_portal, limit, offset))
+
+        messages = []
+        for row in cursor.fetchall():
+            msg_type = "sent" if row[1] == my_portal else "received"
+            messages.append({
+                "id": row[0],
+                "type": msg_type,
+                "from": row[1],
+                "to": row[2],
+                "content": row[3],
+                "message_type": row[4],
+                "created_at": row[5]
+            })
+
     return {
         "total": total,
         "limit": limit,
@@ -537,44 +569,41 @@ async def push_message(to_portal: str, message: dict):
         # 推送成功，标记为已送达
         message_id = message.get("id")
         if message_id:
-            conn = sqlite3.connect(DATABASE_PATH)
-            cursor = conn.cursor()
-            cursor.execute('UPDATE messages SET is_delivered = TRUE WHERE id = ?', (message_id,))
-            conn.commit()
-            conn.close()
+            with get_db() as conn:
+                cursor = conn.cursor()
+                cursor.execute('UPDATE messages SET is_delivered = TRUE WHERE id = ?', (message_id,))
+                conn.commit()
     except Exception as e:
-        print(f"WebSocket 推送失败: {e}")
+        logger.warning(f"WebSocket 推送失败: {e}")
         # 推送失败，保持 is_delivered = FALSE，等 Agent 上线后 sync
 
 @app.post("/api/message/send")
-async def send_message(request: SendMessageRequest, background_tasks: BackgroundTasks):
-    """发送消息给指定联系人"""
+async def send_message(request: SendMessageRequest, background_tasks: BackgroundTasks, _admin: bool = Depends(verify_admin)):
+    """发送消息给指定联系人（需要 Admin 认证）"""
     my_portal = get_my_portal_url()
-    
-    conn = sqlite3.connect(DATABASE_PATH)
-    cursor = conn.cursor()
-    
-    # 获取联系人信息
-    cursor.execute('''
-        SELECT portal_url, my_api_key FROM contacts WHERE id = ?
-    ''', (request.contact_id,))
-    contact = cursor.fetchone()
-    
-    if not contact:
-        conn.close()
-        raise HTTPException(status_code=404, detail="Contact not found")
-    
-    to_portal, my_api_key = contact
-    
-    # 保存消息（使用我给对方的API Key作为发送方标识）
-    cursor.execute('''
-        INSERT INTO messages (from_portal, to_portal, content, message_type, sender_api_key, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-    ''', (my_portal, to_portal, request.content, request.message_type, my_api_key, get_now().strftime('%Y-%m-%d %H:%M:%S')))
-    
-    message_id = cursor.lastrowid
-    conn.commit()
-    conn.close()
+
+    with get_db() as conn:
+        cursor = conn.cursor()
+
+        # 获取联系人信息
+        cursor.execute('''
+            SELECT portal_url, my_api_key FROM contacts WHERE id = ?
+        ''', (request.contact_id,))
+        contact = cursor.fetchone()
+
+        if not contact:
+            raise HTTPException(status_code=404, detail="Contact not found")
+
+        to_portal, my_api_key = contact
+
+        # 保存消息（使用我给对方的API Key作为发送方标识）
+        cursor.execute('''
+            INSERT INTO messages (from_portal, to_portal, content, message_type, sender_api_key, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (my_portal, to_portal, request.content, request.message_type, my_api_key, get_now().strftime('%Y-%m-%d %H:%M:%S')))
+
+        message_id = cursor.lastrowid
+        conn.commit()
     
     # 后台推送消息
     background_tasks.add_task(push_message, to_portal, {
@@ -593,57 +622,53 @@ async def send_message(request: SendMessageRequest, background_tasks: Background
 async def receive_message(request: ReceiveMessageRequest, background_tasks: BackgroundTasks):
     """
     接收来自其他 Agent 的消息
-    
+
     流程：
     1. 验证 api_key（必须是我给对方的 Key）
     2. 保存消息到数据库
     3. 通过 WebSocket 推送给我的 Agent
     """
     my_portal = get_my_portal_url()
-    
+
     # 验证 API Key（检查是否是我给某个联系人的 Key）
-    conn = sqlite3.connect(DATABASE_PATH)
-    cursor = conn.cursor()
-    
-    # 先检查 my_api_key（我给对方的 Key）
-    cursor.execute('''
-        SELECT portal_url, display_name, agent_name FROM contacts 
-        WHERE my_api_key = ?
-    ''', (request.api_key,))
-    
-    contact = cursor.fetchone()
-    
-    # 如果没找到，再检查 their_api_key（对方给我的 Key，用于调试）
-    if not contact:
+    with get_db() as conn:
+        cursor = conn.cursor()
+
+        # 先检查 my_api_key（我给对方的 Key）
         cursor.execute('''
-            SELECT portal_url, display_name, agent_name FROM contacts 
-            WHERE their_api_key = ?
+            SELECT portal_url, display_name, agent_name FROM contacts
+            WHERE my_api_key = ?
         ''', (request.api_key,))
+
         contact = cursor.fetchone()
-        if contact:
-            conn.close()
-            raise HTTPException(status_code=401, detail="API Key mismatch: you used their_api_key, but should use my_api_key")
-    
-    if not contact:
-        conn.close()
-        raise HTTPException(status_code=401, detail="Invalid API Key")
-    
-    contact_portal, display_name, agent_name = contact
-    
-    # 验证 from_portal 是否匹配
-    if contact_portal != request.from_portal:
-        conn.close()
-        raise HTTPException(status_code=403, detail="Portal URL mismatch")
-    
-    # 保存消息（我是接收方）
-    cursor.execute('''
-        INSERT INTO messages (from_portal, to_portal, content, message_type, sender_api_key, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-    ''', (request.from_portal, my_portal, request.content, request.message_type, request.api_key, get_now().strftime('%Y-%m-%d %H:%M:%S')))
-    
-    message_id = cursor.lastrowid
-    conn.commit()
-    conn.close()
+
+        # 如果没找到，再检查 their_api_key（对方给我的 Key，用于调试）
+        if not contact:
+            cursor.execute('''
+                SELECT portal_url, display_name, agent_name FROM contacts
+                WHERE their_api_key = ?
+            ''', (request.api_key,))
+            contact = cursor.fetchone()
+            if contact:
+                raise HTTPException(status_code=401, detail="API Key mismatch: you used their_api_key, but should use my_api_key")
+
+        if not contact:
+            raise HTTPException(status_code=401, detail="Invalid API Key")
+
+        contact_portal, display_name, agent_name = contact
+
+        # 验证 from_portal 是否匹配
+        if contact_portal != request.from_portal:
+            raise HTTPException(status_code=403, detail="Portal URL mismatch")
+
+        # 保存消息（我是接收方）
+        cursor.execute('''
+            INSERT INTO messages (from_portal, to_portal, content, message_type, sender_api_key, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (request.from_portal, my_portal, request.content, request.message_type, request.api_key, get_now().strftime('%Y-%m-%d %H:%M:%S')))
+
+        message_id = cursor.lastrowid
+        conn.commit()
     
     # 通过 WebSocket 推送给我的 Agent
     background_tasks.add_task(push_message, my_portal, {
@@ -659,29 +684,28 @@ async def receive_message(request: ReceiveMessageRequest, background_tasks: Back
     return {"status": "received", "message_id": message_id}
 
 @app.get("/api/messages")
-async def get_messages(contact_portal: str, since: Optional[str] = None):
-    """获取与某个联系人的消息"""
-    conn = sqlite3.connect(DATABASE_PATH)
-    cursor = conn.cursor()
-    
-    if since:
-        cursor.execute('''
-            SELECT from_portal, to_portal, content, message_type, created_at
-            FROM messages 
-            WHERE (from_portal = ? OR to_portal = ?) AND created_at > ?
-            ORDER BY created_at ASC
-        ''', (contact_portal, contact_portal, since))
-    else:
-        cursor.execute('''
-            SELECT from_portal, to_portal, content, message_type, created_at
-            FROM messages 
-            WHERE from_portal = ? OR to_portal = ?
-            ORDER BY created_at ASC
-        ''', (contact_portal, contact_portal))
-    
-    messages = cursor.fetchall()
-    conn.close()
-    
+async def get_messages(contact_portal: str, since: Optional[str] = None, _admin: bool = Depends(verify_admin)):
+    """获取与某个联系人的消息（需要 Admin 认证）"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+
+        if since:
+            cursor.execute('''
+                SELECT from_portal, to_portal, content, message_type, created_at
+                FROM messages
+                WHERE (from_portal = ? OR to_portal = ?) AND created_at > ?
+                ORDER BY created_at ASC
+            ''', (contact_portal, contact_portal, since))
+        else:
+            cursor.execute('''
+                SELECT from_portal, to_portal, content, message_type, created_at
+                FROM messages
+                WHERE from_portal = ? OR to_portal = ?
+                ORDER BY created_at ASC
+            ''', (contact_portal, contact_portal))
+
+        messages = cursor.fetchall()
+
     return {
         "messages": [
             {
@@ -696,46 +720,44 @@ async def get_messages(contact_portal: str, since: Optional[str] = None):
     }
 
 @app.get("/api/contacts")
-async def get_contacts():
-    """获取联系人列表"""
-    conn = sqlite3.connect(DATABASE_PATH)
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        SELECT id, portal_url, display_name, agent_name, user_name, my_api_key, their_api_key, is_verified, created_at
-        FROM contacts
-        ORDER BY created_at DESC
-    ''')
-    
-    contacts = cursor.fetchall()
-    
-    # 获取每个联系人的未读消息数
-    result = []
-    for c in contacts:
-        contact_id, portal_url, display_name, agent_name, user_name, my_api_key, their_api_key, is_verified, created_at = c
-        
+async def get_contacts(_admin: bool = Depends(verify_admin)):
+    """获取联系人列表（需要 Admin 认证）"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+
         cursor.execute('''
-            SELECT COUNT(*) FROM messages 
-            WHERE from_portal = ? AND to_portal = ? AND is_delivered = FALSE
-        ''', (portal_url, get_my_portal_url()))
-        
-        unread_count = cursor.fetchone()[0]
-        
-        result.append({
-            "id": contact_id,
-            "portal_url": portal_url,
-            "display_name": display_name,
-            "agent_name": agent_name,
-            "user_name": user_name,
-            "my_api_key": my_api_key,  # 我给对方的API Key
-            "their_api_key": their_api_key,  # 对方给我的API Key
-            "is_verified": is_verified,
-            "created_at": created_at,
-            "unread_count": unread_count
-        })
-    
-    conn.close()
-    
+            SELECT id, portal_url, display_name, agent_name, user_name, my_api_key, their_api_key, is_verified, created_at
+            FROM contacts
+            ORDER BY created_at DESC
+        ''')
+
+        contacts = cursor.fetchall()
+
+        # 获取每个联系人的未读消息数
+        result = []
+        for c in contacts:
+            contact_id, portal_url, display_name, agent_name, user_name, my_api_key, their_api_key, is_verified, created_at = c
+
+            cursor.execute('''
+                SELECT COUNT(*) FROM messages
+                WHERE from_portal = ? AND to_portal = ? AND is_delivered = FALSE
+            ''', (portal_url, get_my_portal_url()))
+
+            unread_count = cursor.fetchone()[0]
+
+            result.append({
+                "id": contact_id,
+                "portal_url": portal_url,
+                "display_name": display_name,
+                "agent_name": agent_name,
+                "user_name": user_name,
+                "my_api_key": my_api_key,  # 我给对方的API Key
+                "their_api_key": their_api_key,  # 对方给我的API Key
+                "is_verified": is_verified,
+                "created_at": created_at,
+                "unread_count": unread_count
+            })
+
     return {"contacts": result}
 
 class CreateContactRequest(BaseModel):
@@ -747,104 +769,99 @@ class CreateContactRequest(BaseModel):
     their_api_key: Optional[str] = None  # 对方给我的API Key
 
 @app.post("/api/contacts")
-async def create_contact(request: CreateContactRequest):
-    """创建联系人"""
-    conn = sqlite3.connect(DATABASE_PATH)
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        INSERT OR REPLACE INTO contacts 
-        (portal_url, display_name, agent_name, user_name, my_api_key, their_api_key, is_verified, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, TRUE, ?)
-    ''', (
-        request.portal_url,
-        request.display_name,
-        request.agent_name,
-        request.user_name,
-        request.my_api_key or generate_api_key(),  # 自动生成我给对方的Key
-        request.their_api_key,
-        get_now().strftime('%Y-%m-%d %H:%M:%S')
-    ))
-    
-    conn.commit()
-    conn.close()
-    
+async def create_contact(request: CreateContactRequest, _admin: bool = Depends(verify_admin)):
+    """创建联系人（需要 Admin 认证）"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            INSERT OR REPLACE INTO contacts
+            (portal_url, display_name, agent_name, user_name, my_api_key, their_api_key, is_verified, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, TRUE, ?)
+        ''', (
+            request.portal_url,
+            request.display_name,
+            request.agent_name,
+            request.user_name,
+            request.my_api_key or generate_api_key(),  # 自动生成我给对方的Key
+            request.their_api_key,
+            get_now().strftime('%Y-%m-%d %H:%M:%S')
+        ))
+
+        conn.commit()
+
     return {"status": "created"}
 
 @app.delete("/api/contacts/{contact_id}")
-async def delete_contact(contact_id: int):
-    """删除联系人"""
-    conn = sqlite3.connect(DATABASE_PATH)
-    cursor = conn.cursor()
-    
-    cursor.execute('DELETE FROM contacts WHERE id = ?', (contact_id,))
-    
-    if cursor.rowcount == 0:
-        conn.close()
-        raise HTTPException(status_code=404, detail="Contact not found")
-    
-    conn.commit()
-    conn.close()
-    
+async def delete_contact(contact_id: int, _admin: bool = Depends(verify_admin)):
+    """删除联系人（需要 Admin 认证）"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+
+        cursor.execute('DELETE FROM contacts WHERE id = ?', (contact_id,))
+
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Contact not found")
+
+        conn.commit()
+
     return {"status": "deleted"}
 
 @app.put("/api/contacts/{contact_id}")
-async def update_contact(contact_id: int, request: CreateContactRequest):
-    """更新联系人信息"""
-    conn = sqlite3.connect(DATABASE_PATH)
-    cursor = conn.cursor()
-    
-    # 检查联系人是否存在
-    cursor.execute('SELECT id FROM contacts WHERE id = ?', (contact_id,))
-    if not cursor.fetchone():
-        conn.close()
-        raise HTTPException(status_code=404, detail="Contact not found")
-    
-    # 更新字段
-    cursor.execute('''
-        UPDATE contacts 
-        SET display_name = ?, agent_name = ?, user_name = ?, my_api_key = ?, their_api_key = ?
-        WHERE id = ?
-    ''', (
-        request.display_name,
-        request.agent_name,
-        request.user_name,
-        request.my_api_key,
-        request.their_api_key,
-        contact_id
-    ))
-    
-    conn.commit()
-    conn.close()
-    
+async def update_contact(contact_id: int, request: CreateContactRequest, _admin: bool = Depends(verify_admin)):
+    """更新联系人信息（需要 Admin 认证）"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+
+        # 检查联系人是否存在
+        cursor.execute('SELECT id FROM contacts WHERE id = ?', (contact_id,))
+        if not cursor.fetchone():
+            raise HTTPException(status_code=404, detail="Contact not found")
+
+        # 更新字段
+        cursor.execute('''
+            UPDATE contacts
+            SET display_name = ?, agent_name = ?, user_name = ?, my_api_key = ?, their_api_key = ?
+            WHERE id = ?
+        ''', (
+            request.display_name,
+            request.agent_name,
+            request.user_name,
+            request.my_api_key,
+            request.their_api_key,
+            contact_id
+        ))
+
+        conn.commit()
+
     return {"status": "updated"}
 
 @app.get("/api/notifications/pending")
-async def get_pending_notifications():
-    """获取待通知的消息（供 OpenClaw 拉取）"""
-    conn = sqlite3.connect(DATABASE_PATH)
-    cursor = conn.cursor()
-    
-    # 获取未通知的消息
-    cursor.execute('''
-        SELECT id, type, content, portal, created_at 
-        FROM pending_notifications 
-        WHERE is_notified = FALSE
-        ORDER BY created_at ASC
-    ''')
-    
-    notifications = cursor.fetchall()
-    
-    # 标记为已通知
-    if notifications:
-        ids = [n[0] for n in notifications]
-        placeholders = ','.join('?' * len(ids))
-        sql = f"UPDATE pending_notifications SET is_notified = TRUE WHERE id IN ({placeholders})"
-        cursor.execute(sql, ids)
-        conn.commit()
-    
-    conn.close()
-    
+async def get_pending_notifications(_admin: bool = Depends(verify_admin)):
+    """获取待通知的消息（供 OpenClaw 拉取）（需要 Admin 认证）"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+
+        # 获取未通知的消息
+        cursor.execute('''
+            SELECT id, type, content, portal, created_at
+            FROM pending_notifications
+            WHERE is_notified = FALSE
+            ORDER BY created_at ASC
+        ''')
+
+        notifications = cursor.fetchall()
+
+        # 标记为已通知
+        if notifications:
+            ids = [n[0] for n in notifications]
+            placeholders = ','.join('?' * len(ids))
+            cursor.execute(
+                f"UPDATE pending_notifications SET is_notified = TRUE WHERE id IN ({placeholders})",
+                ids
+            )
+            conn.commit()
+
     return {
         "notifications": [
             {
@@ -860,28 +877,33 @@ async def get_pending_notifications():
 
 @app.get("/api/portal/info")
 async def get_portal_info():
-    """获取当前 Portal 信息"""
-    # 获取第一个可用的 API Key
-    conn = sqlite3.connect(DATABASE_PATH)
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        SELECT key_id FROM api_keys 
-        WHERE is_active = TRUE 
-        ORDER BY created_at DESC 
-        LIMIT 1
-    ''')
-    
-    result = cursor.fetchone()
-    
-    # 获取 OpenClaw 配置
-    cursor.execute('SELECT value FROM config WHERE key = ?', ('openclaw_url',))
-    openclaw_url = cursor.fetchone()
-    cursor.execute('SELECT value FROM config WHERE key = ?', ('openclaw_token',))
-    openclaw_token = cursor.fetchone()
-    
-    conn.close()
-    
+    """获取当前 Portal 信息（公开接口，仅返回 URL）"""
+    return {
+        "url": get_my_portal_url(),
+        "status": "running"
+    }
+
+@app.get("/api/portal/detail")
+async def get_portal_detail(_admin: bool = Depends(verify_admin)):
+    """获取 Portal 详细信息（需要 Admin 认证）"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            SELECT key_id FROM api_keys
+            WHERE is_active = TRUE
+            ORDER BY created_at DESC
+            LIMIT 1
+        ''')
+
+        result = cursor.fetchone()
+
+        # 获取 OpenClaw 配置
+        cursor.execute('SELECT value FROM config WHERE key = ?', ('openclaw_url',))
+        openclaw_url = cursor.fetchone()
+        cursor.execute('SELECT value FROM config WHERE key = ?', ('openclaw_token',))
+        openclaw_token = cursor.fetchone()
+
     return {
         "url": get_my_portal_url(),
         "api_key": result[0] if result else None,
@@ -894,32 +916,29 @@ class OpenClawConfig(BaseModel):
     token: str
 
 @app.post("/api/config/openclaw")
-async def save_openclaw_config(request: OpenClawConfig):
-    """保存 OpenClaw 配置"""
-    conn = sqlite3.connect(DATABASE_PATH)
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)
-    ''', ('openclaw_url', request.url))
-    
-    cursor.execute('''
-        INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)
-    ''', ('openclaw_token', request.token))
-    
-    conn.commit()
-    conn.close()
-    
+async def save_openclaw_config(request: OpenClawConfig, _admin: bool = Depends(verify_admin)):
+    """保存 OpenClaw 配置（需要 Admin 认证）"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)
+        ''', ('openclaw_url', request.url))
+
+        cursor.execute('''
+            INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)
+        ''', ('openclaw_token', request.token))
+
+        conn.commit()
+
     return {"status": "saved"}
 
 # WebSocket 连接管理
 class ConnectionManager:
     def __init__(self):
         self.active_connections: dict = {}
-    
+
     async def connect(self, websocket: WebSocket, api_key: str):
-        import logging
-        logger = logging.getLogger(__name__)
         logger.info(f"[WS] Connection attempt with api_key: {api_key[:30]}...")
         await websocket.accept()
         portal_url = verify_api_key(api_key)
@@ -929,30 +948,25 @@ class ConnectionManager:
             logger.info(f"[WS] Connection added for {portal_url}")
             logger.info(f"[WS] Active connections: {list(self.active_connections.keys())}")
         else:
-            logger.info(f"[WS] API Key verification failed")
-    
+            logger.warning(f"[WS] API Key verification failed")
+
     def disconnect(self, api_key: str):
         portal_url = verify_api_key(api_key)
         if portal_url and portal_url in self.active_connections:
             del self.active_connections[portal_url]
-    
+
     async def send_message(self, portal_url: str, message: dict):
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.info(f"[DEBUG] Trying to send to {portal_url}")
-        logger.info(f"[DEBUG] Active connections: {list(self.active_connections.keys())}")
+        logger.debug(f"[WS] Trying to send to {portal_url}")
+        logger.debug(f"[WS] Active connections: {list(self.active_connections.keys())}")
         if portal_url in self.active_connections:
             await self.active_connections[portal_url].send_json(message)
-            logger.info(f"[DEBUG] Message sent to {portal_url}")
+            logger.debug(f"[WS] Message sent to {portal_url}")
         else:
-            logger.info(f"[DEBUG] No active connection for {portal_url}")
-            # 抛出异常，让调用者知道发送失败
+            logger.debug(f"[WS] No active connection for {portal_url}")
             raise Exception(f"No active WebSocket connection for {portal_url}")
-    
+
     async def broadcast(self, message: dict):
         """广播消息给所有连接的 Agent"""
-        import logging
-        logger = logging.getLogger(__name__)
         disconnected = []
         for portal_url, websocket in self.active_connections.items():
             try:
@@ -969,15 +983,13 @@ manager = ConnectionManager()
 
 @app.websocket("/ws/agent")
 async def websocket_endpoint(websocket: WebSocket, api_key: str):
-    await manager.connect(websocket, api_key)
     import asyncio
-    
+
+    await manager.connect(websocket, api_key)
+
     # 获取 portal_url
     portal_url = verify_api_key(api_key)
-    
-    # 启动心跳任务
-    heartbeat_task = None
-    
+
     async def send_heartbeat():
         """定期发送心跳保持连接"""
         while True:
@@ -986,39 +998,46 @@ async def websocket_endpoint(websocket: WebSocket, api_key: str):
                 await websocket.send_json({"type": "ping"})
             except Exception:
                 break
-    
+
     # 启动心跳
     heartbeat_task = asyncio.create_task(send_heartbeat())
-    
+
     try:
         while True:
-            # 设置接收超时，避免长时间阻塞
-            data = await asyncio.wait_for(websocket.receive_json(), timeout=60)
-            
+            # 增加超时到 120 秒，避免因网络抖动频繁断连
+            try:
+                data = await asyncio.wait_for(websocket.receive_json(), timeout=120)
+            except asyncio.TimeoutError:
+                # 超时不断连，发送 ping 检测连接是否存活
+                try:
+                    await websocket.send_json({"type": "ping"})
+                    continue
+                except Exception:
+                    break
+
             if data.get("type") == "ping":
                 await websocket.send_json({"type": "pong"})
             elif data.get("type") == "pong":
                 # 收到心跳响应，连接正常
                 pass
-            
+
             elif data.get("type") == "sync_request":
                 # 返回未送达的消息（离线期间的消息）
                 portal_url = verify_api_key(api_key)
                 if portal_url:
-                    conn = sqlite3.connect(DATABASE_PATH)
-                    cursor = conn.cursor()
-                    
-                    # 只查询 is_delivered = FALSE 的消息
-                    cursor.execute('''
-                        SELECT id, from_portal, content, message_type, created_at
-                        FROM messages 
-                        WHERE to_portal = ? AND is_delivered = FALSE
-                        ORDER BY created_at ASC
-                    ''', (portal_url,))
-                    
-                    messages = cursor.fetchall()
-                    conn.close()
-                    
+                    with get_db() as conn:
+                        cursor = conn.cursor()
+
+                        # 只查询 is_delivered = FALSE 的消息
+                        cursor.execute('''
+                            SELECT id, from_portal, content, message_type, created_at
+                            FROM messages
+                            WHERE to_portal = ? AND is_delivered = FALSE
+                            ORDER BY created_at ASC
+                        ''', (portal_url,))
+
+                        messages = cursor.fetchall()
+
                     await websocket.send_json({
                         "type": "sync_response",
                         "messages": [
@@ -1026,32 +1045,37 @@ async def websocket_endpoint(websocket: WebSocket, api_key: str):
                             for m in messages
                         ]
                     })
-            
+
             elif data.get("type") == "ack":
                 # 确认收到消息，更新 is_delivered
                 message_ids = data.get("message_ids", [])
                 if message_ids:
-                    conn = sqlite3.connect(DATABASE_PATH)
-                    cursor = conn.cursor()
-                    
-                    # 批量更新 is_delivered
-                    placeholders = ','.join('?' * len(message_ids))
-                    sql = f"UPDATE messages SET is_delivered = TRUE WHERE id IN ({placeholders})"
-                    cursor.execute(sql, message_ids)
-                    
-                    conn.commit()
-                    conn.close()
-                    
+                    with get_db() as conn:
+                        cursor = conn.cursor()
+
+                        # 批量更新 is_delivered
+                        placeholders = ','.join('?' * len(message_ids))
+                        cursor.execute(
+                            f"UPDATE messages SET is_delivered = TRUE WHERE id IN ({placeholders})",
+                            message_ids
+                        )
+
+                        conn.commit()
+
                     await websocket.send_json({
                         "type": "ack_confirm",
                         "message_ids": message_ids
                     })
-    
+
     except WebSocketDisconnect:
         manager.disconnect(api_key)
+    except Exception as e:
+        logger.error(f"[WS] Unexpected error: {e}")
+        manager.disconnect(api_key)
+    finally:
+        heartbeat_task.cancel()
 
 # 静态文件（管理后台）
-import os
 static_dir = os.path.join(os.path.dirname(__file__), "static")
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
@@ -1076,6 +1100,5 @@ async def root():
 
 if __name__ == "__main__":
     import uvicorn
-    import os
     port = int(os.getenv("PORT", 8080))
     uvicorn.run(app, host="0.0.0.0", port=port)

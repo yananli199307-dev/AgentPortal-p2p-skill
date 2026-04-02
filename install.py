@@ -280,7 +280,9 @@ class AgentP2PInstaller:
                         raise
                     continue
             
-            # 创建 systemd 服务文件
+            # 创建 systemd 服务文件（使用随机生成的 SECRET_KEY）
+            import secrets as _secrets
+            secret_key = _secrets.token_urlsafe(32)
             service_content = f"""[Unit]
 Description=Agent P2P Portal
 After=network.target
@@ -290,7 +292,8 @@ Type=simple
 User={username}
 WorkingDirectory=/opt/agent-p2p
 Environment=PATH=/opt/agent-p2p/venv/bin
-Environment=SECRET_KEY=agent-p2p-shared-key-2024
+Environment=SECRET_KEY={secret_key}
+Environment=PORTAL_URL=https://{self.current_portal.domain}
 ExecStart=/opt/agent-p2p/venv/bin/uvicorn src.main:app --host 127.0.0.1 --port 8080
 Restart=always
 RestartSec=5
