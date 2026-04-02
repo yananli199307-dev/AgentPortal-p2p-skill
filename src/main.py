@@ -1,16 +1,17 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends, File, UploadFile, Request, BackgroundTasks, Header
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends, Request, BackgroundTasks, Header
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional
 from pathlib import Path
 from contextlib import contextmanager
+import asyncio
+import base64
 import sqlite3
 import json
 import secrets
-import hashlib
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 import pytz
 import os
 
@@ -22,23 +23,16 @@ app = FastAPI(title="Agent P2P Portal")
 DATABASE_PATH = os.getenv("DATABASE_PATH", "./data/portal.db")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
 
+# 启动时检查默认密码
+if ADMIN_PASSWORD == "admin123":
+    logger.warning("⚠️  ADMIN_PASSWORD 使用了默认值 'admin123'，请设置环境变量 ADMIN_PASSWORD 修改为强密码！")
+
 # 时区设置
 TZ = pytz.timezone('Asia/Shanghai')
 
 def get_now():
     """获取当前北京时间"""
     return datetime.now(TZ)
-
-def format_datetime(dt):
-    """格式化日期时间为北京时间字符串"""
-    if dt is None:
-        return None
-    if isinstance(dt, str):
-        return dt
-    # 转换为北京时间
-    if dt.tzinfo is None:
-        dt = pytz.UTC.localize(dt)
-    return dt.astimezone(TZ).strftime('%Y-%m-%d %H:%M:%S')
 
 # 确保数据目录存在
 os.makedirs(os.path.dirname(DATABASE_PATH), exist_ok=True)
@@ -66,13 +60,11 @@ async def verify_admin(authorization: Optional[str] = Header(None)):
     if not authorization:
         raise HTTPException(status_code=401, detail="Authorization header required")
 
-    import base64
-
     if authorization.startswith("Basic "):
         try:
             decoded = base64.b64decode(authorization[6:]).decode("utf-8")
             username, password = decoded.split(":", 1)
-            if username == "admin" and password == ADMIN_PASSWORD:
+            if username == "admin" and secrets.compare_digest(password, ADMIN_PASSWORD):
                 return True
         except Exception:
             pass
@@ -80,7 +72,7 @@ async def verify_admin(authorization: Optional[str] = Header(None)):
 
     elif authorization.startswith("Bearer "):
         token = authorization[7:]
-        if token == ADMIN_PASSWORD:
+        if secrets.compare_digest(token, ADMIN_PASSWORD):
             return True
         raise HTTPException(status_code=401, detail="Invalid token")
 
@@ -175,11 +167,6 @@ init_db()
 # 数据模型
 class GuestMessageRequest(BaseModel):
     content: str
-
-class MessageHistoryRequest(BaseModel):
-    contact_portal: str
-    limit: int = 50
-    offset: int = 0
 
 class SendMessageRequest(BaseModel):
     contact_id: int                 # 联系人ID，系统会自动使用我给对方的API Key
@@ -630,7 +617,7 @@ async def receive_message(request: ReceiveMessageRequest, background_tasks: Back
     """
     my_portal = get_my_portal_url()
 
-    # 验证 API Key（检查是否是我给某个联系人的 Key）
+    # 步骤 1：验证 API Key（只读查询，不需要事务保护）
     with get_db() as conn:
         cursor = conn.cursor()
 
@@ -652,16 +639,19 @@ async def receive_message(request: ReceiveMessageRequest, background_tasks: Back
             if contact:
                 raise HTTPException(status_code=401, detail="API Key mismatch: you used their_api_key, but should use my_api_key")
 
-        if not contact:
-            raise HTTPException(status_code=401, detail="Invalid API Key")
+    if not contact:
+        raise HTTPException(status_code=401, detail="Invalid API Key")
 
-        contact_portal, display_name, agent_name = contact
+    contact_portal, display_name, agent_name = contact
 
-        # 验证 from_portal 是否匹配
-        if contact_portal != request.from_portal:
-            raise HTTPException(status_code=403, detail="Portal URL mismatch")
+    # 验证 from_portal 是否匹配
+    if contact_portal != request.from_portal:
+        raise HTTPException(status_code=403, detail="Portal URL mismatch")
 
-        # 保存消息（我是接收方）
+    # 步骤 2：保存消息（写操作，需要 commit）
+    with get_db() as conn:
+        cursor = conn.cursor()
+
         cursor.execute('''
             INSERT INTO messages (from_portal, to_portal, content, message_type, sender_api_key, created_at)
             VALUES (?, ?, ?, ?, ?, ?)
@@ -947,8 +937,11 @@ class ConnectionManager:
             self.active_connections[portal_url] = websocket
             logger.info(f"[WS] Connection added for {portal_url}")
             logger.info(f"[WS] Active connections: {list(self.active_connections.keys())}")
+            return True
         else:
-            logger.warning(f"[WS] API Key verification failed")
+            logger.warning(f"[WS] API Key verification failed, closing connection")
+            await websocket.close(code=4001, reason="Invalid API Key")
+            return False
 
     def disconnect(self, api_key: str):
         portal_url = verify_api_key(api_key)
@@ -983,9 +976,9 @@ manager = ConnectionManager()
 
 @app.websocket("/ws/agent")
 async def websocket_endpoint(websocket: WebSocket, api_key: str):
-    import asyncio
-
-    await manager.connect(websocket, api_key)
+    connected = await manager.connect(websocket, api_key)
+    if not connected:
+        return
 
     # 获取 portal_url
     portal_url = verify_api_key(api_key)
