@@ -21,15 +21,31 @@ import os
 import sys
 import time
 import logging
+from logging.handlers import RotatingFileHandler
 import ssl
 from pathlib import Path
 from datetime import datetime
 import urllib.request
 
-# 配置日志
+# 配置日志 - 使用轮转文件处理器
+LOG_DIR = Path(__file__).parent
+LOG_FILE = LOG_DIR / 'bridge.log'
+
+# 创建轮转日志处理器：保留3个文件，每个最大5MB
+log_handler = RotatingFileHandler(
+    LOG_FILE,
+    maxBytes=5*1024*1024,  # 5MB
+    backupCount=3,          # 保留3个旧文件
+    encoding='utf-8'
+)
+log_handler.setLevel(logging.INFO)
+log_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+
+# 配置 logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[log_handler]
 )
 logger = logging.getLogger('agent-p2p-skill')
 
