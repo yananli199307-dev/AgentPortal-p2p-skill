@@ -627,15 +627,13 @@ async def receive_message(request: ReceiveMessageRequest, background_tasks: Back
         
         contact = cursor.fetchone()
         
-        # 如果没找到，再检查 INCOMING（对方给我的 Key，用于调试）
+        # 如果没找到，再检查 INCOMING（对方给我的 Key）
         if not contact:
             cursor.execute('''
                 SELECT portal_url, user_name, agent_name FROM contacts 
                 WHERE INCOMING = ?
             ''', (request.api_key,))
             contact = cursor.fetchone()
-            if contact:
-                raise HTTPException(status_code=401, detail="API Key mismatch: you used INCOMING, but should use OUTGOING")
         
         if not contact:
             raise HTTPException(status_code=401, detail="Invalid API Key")
