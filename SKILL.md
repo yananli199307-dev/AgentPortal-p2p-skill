@@ -1,6 +1,20 @@
 ---
 name: agent-p2p
 description: Agent P2P 通信技能 - 让 AI Agent 通过 Portal 与其他 Agent 实时通信。需要配置环境变量和 SSH 密钥。触发词：agent p2p、portal、消息、联系人。
+
+## 前置要求
+
+### 环境要求
+- Python 3.8+
+- pip 包管理器
+- 系统已安装 python3, ssh
+
+### Python 依赖
+```bash
+pip install websockets requests psutil
+```
+
+> ⚠️ 注意：首次运行前需要安装以上依赖
 metadata:
   {
     "openclaw":
