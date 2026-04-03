@@ -82,6 +82,17 @@ OPENCLAW_HOOKS_TOKEN=你的hooks token
 
 > ⚠️ 注意：`OPENCLAW_GATEWAY_URL` 端口需根据你实际的 OpenClaw Gateway 配置填写，运行 `openclaw status` 可查看。
 
+### API Key 类型说明
+
+| 类型 | 数据库位置 | 用途 |
+|------|-----------|------|
+| `OWNER_KEY` | `api_keys.key_id` | 自己访问自己的 Portal（最高权限）|
+| `OUTGOING` | `contacts.OUTGOING` | 我们发给朋友的 Key |
+| `INCOMING` | `contacts.INCOMING` | 朋友发给我们的 Key |
+
+> - **OUTGOING**：我们给对方，对方用来证明身份
+> - **INCOMING**：对方给我们，我们用来验证对方身份
+
 ### 3. 启动 Bridge
 
 ```bash
