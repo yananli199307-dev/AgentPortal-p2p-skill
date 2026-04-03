@@ -150,9 +150,10 @@ def generate_api_key() -> str:
 def verify_api_key(api_key: str) -> Optional[str]:
     """验证 API Key，返回对应的 portal_url
     
-    检查两个地方：
+    检查三个地方：
     1. api_keys 表 - 我自己生成的 Key（用于 WebSocket 连接）
-    2. contacts 表 - 联系人给我的 Key（their_api_key，用于验证对方身份）
+    2. contacts.my_api_key - 我给对方的 Key（对方用此 Key 访问他有自己的 Portal）
+    3. contacts.their_api_key - 对方给我的 Key（用于验证对方身份）
     """
     conn = sqlite3.connect(DATABASE_PATH)
     cursor = conn.cursor()
@@ -168,7 +169,18 @@ def verify_api_key(api_key: str) -> Optional[str]:
         conn.close()
         return result[0]
     
-    # 2. 检查是否是某个联系人给我的 Key（their_api_key）
+    # 2. 检查是否是我的 Key（我给对方的 Key）
+    cursor.execute('''
+        SELECT portal_url FROM contacts 
+        WHERE my_api_key = ?
+    ''', (api_key,))
+    
+    result = cursor.fetchone()
+    if result:
+        conn.close()
+        return result[0]
+    
+    # 3. 检查是否是某个联系人给我的 Key（their_api_key）
     cursor.execute('''
         SELECT portal_url FROM contacts 
         WHERE their_api_key = ?
