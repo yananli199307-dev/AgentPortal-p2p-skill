@@ -400,8 +400,8 @@
             <div style="background: #e3f2fd; padding: 16px; border-radius: 8px; margin-top: 16px;">
                 <strong>💡 API Key 说明</strong>
                 <ul style="margin-top: 8px; padding-left: 20px; color: #555; font-size: 14px;">
-                    <li><strong>对方给你的 API Key</strong> → 在联系人详情中查看，<strong>你发送消息时用此标识自己</strong></li>
-                    <li><strong>你给对方的 API Key</strong> → 在联系人详情中查看，<strong>对方发送消息时用此验证身份</strong></li>
+                    <li><strong>共享的 SHARED_KEY</strong> → 在联系人详情中查看，<strong>双方都用此发消息</strong></li>
+                    <li><strong>共享的 SHARED_KEY</strong> → 在联系人详情中查看，<strong>双方都用此发消息</strong></li>
                 </ul>
             </div>
             
@@ -442,12 +442,8 @@
                 <input type="text" id="edit-user" placeholder="用户名称">
             </div>
             <div class="form-group">
-                <label>你给对方的 API Key</label>
-                <input type="text" id="edit-mykey" placeholder="ap2p_xxx">
-            </div>
-            <div class="form-group">
-                <label>对方的 API Key</label>
-                <input type="text" id="edit-theirkey" placeholder="ap2p_xxx">
+                <label>共享的 SHARED_KEY</label>
+                <input type="text" id="edit-shared-key" placeholder="ap2p_xxx">
             </div>
             <div class="modal-actions">
                 <button class="btn-small btn-secondary" onclick="hideEditModal()">取消</button>
@@ -614,17 +610,10 @@
                         </div>
                         <div style="background: #e8f5e9; padding: 12px; border-radius: 8px; margin: 12px 0;">
                             <div class="info-row" style="margin-bottom: 8px;">
-                                <div class="info-label">🔑 对方给你的 API Key</div>
-                                <div class="info-value" style="background: #fff;">${c.their_api_key || '未设置'}</div>
+                                <div class="info-label">🔑 共享的 SHARED_KEY</div>
+                                <div class="info-value" style="background: #fff;">${c.SHARED_KEY || c.api_key || '未设置'}</div>
                             </div>
-                            <div style="font-size: 12px; color: #666; margin-left: 140px;">→ 你发送消息时用此标识自己</div>
-                        </div>
-                        <div style="background: #fff3e0; padding: 12px; border-radius: 8px; margin: 12px 0;">
-                            <div class="info-row" style="margin-bottom: 8px;">
-                                <div class="info-label">🔑 你给对方的 API Key</div>
-                                <div class="info-value" style="background: #fff;">${c.my_api_key || c.api_key || '未设置'}</div>
-                            </div>
-                            <div style="font-size: 12px; color: #666; margin-left: 140px;">→ 对方发送消息时用此验证身份</div>
+                            <div style="font-size: 12px; color: #666; margin-left: 140px;">→ 双方都用此发消息</div>
                         </div>
                     </div>
                 </div>
@@ -693,8 +682,7 @@
             document.getElementById('edit-name').value = c.display_name || '';
             document.getElementById('edit-agent').value = c.agent_name || '';
             document.getElementById('edit-user').value = c.user_name || '';
-            document.getElementById('edit-mykey').value = c.my_api_key || c.api_key || '';
-            document.getElementById('edit-theirkey').value = c.their_api_key || '';
+            document.getElementById('edit-shared-key').value = c.SHARED_KEY || c.api_key || '';
             document.getElementById('edit-modal').classList.remove('hidden');
         }
         
@@ -709,8 +697,7 @@
                 display_name: document.getElementById('edit-name').value.trim(),
                 agent_name: document.getElementById('edit-agent').value.trim(),
                 user_name: document.getElementById('edit-user').value.trim(),
-                my_api_key: document.getElementById('edit-mykey').value.trim(),
-                their_api_key: document.getElementById('edit-theirkey').value.trim()
+                SHARED_KEY: document.getElementById('edit-shared-key').value.trim()
             };
             try {
                 await fetch(`/api/contacts/${id}`, {
