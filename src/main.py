@@ -155,43 +155,44 @@ def verify_api_key(api_key: str) -> Optional[str]:
     2. contacts.my_api_key - 我给对方的 Key（对方用此 Key 访问他有自己的 Portal）
     3. contacts.their_api_key - 对方给我的 Key（用于验证对方身份）
     """
-    conn = sqlite3.connect(DATABASE_PATH)
-    cursor = conn.cursor()
-    
-    # 1. 检查是否是我自己的 Key
-    cursor.execute('''
-        SELECT portal_url FROM api_keys 
-        WHERE key_id = ? AND is_active = TRUE
-    ''', (api_key,))
-    
-    result = cursor.fetchone()
-    if result:
-        conn.close()
-        return result[0]
-    
-    # 2. 检查是否是我的 Key（我给对方的 Key）
-    cursor.execute('''
-        SELECT portal_url FROM contacts 
-        WHERE my_api_key = ?
-    ''', (api_key,))
-    
-    result = cursor.fetchone()
-    if result:
-        conn.close()
-        return result[0]
-    
-    # 3. 检查是否是某个联系人给我的 Key（their_api_key）
-    cursor.execute('''
-        SELECT portal_url FROM contacts 
-        WHERE their_api_key = ?
-    ''', (api_key,))
-    
-    result = cursor.fetchone()
-    conn.close()
-    
-    if result:
-        return result[0]
-    return None
+    conn = None
+    try:
+        conn = sqlite3.connect(DATABASE_PATH)
+        cursor = conn.cursor()
+        
+        # 1. 检查是否是我自己的 Key
+        cursor.execute('''
+            SELECT portal_url FROM api_keys 
+            WHERE key_id = ? AND is_active = TRUE
+        ''', (api_key,))
+        
+        result = cursor.fetchone()
+        if result:
+            return result[0]
+        
+        # 2. 检查是否是我的 Key（我给对方的 Key）
+        cursor.execute('''
+            SELECT portal_url FROM contacts 
+            WHERE my_api_key = ?
+        ''', (api_key,))
+        
+        result = cursor.fetchone()
+        if result:
+            return result[0]
+        
+        # 3. 检查是否是某个联系人给我的 Key（their_api_key）
+        cursor.execute('''
+            SELECT portal_url FROM contacts 
+            WHERE their_api_key = ?
+        ''', (api_key,))
+        
+        result = cursor.fetchone()
+        if result:
+            return result[0]
+        return None
+    finally:
+        if conn:
+            conn.close()
 
 def get_my_portal_url() -> str:
     """获取当前 Portal 的 URL（从环境变量或配置）"""
@@ -612,66 +613,66 @@ async def receive_message(request: ReceiveMessageRequest, background_tasks: Back
     3. 通过 WebSocket 推送给我的 Agent
     """
     my_portal = get_my_portal_url()
+    conn = None
     
-    # 验证 API Key（检查是否是我给某个联系人的 Key）
-    conn = sqlite3.connect(DATABASE_PATH)
-    cursor = conn.cursor()
-    
-    # 先检查 my_api_key（我给对方的 Key）
-    cursor.execute('''
-        SELECT portal_url, user_name, agent_name FROM contacts 
-        WHERE my_api_key = ?
-    ''', (request.api_key,))
-    
-    contact = cursor.fetchone()
-    
-    # 如果没找到，再检查 their_api_key（对方给我的 Key，用于调试）
-    if not contact:
+    try:
+        conn = sqlite3.connect(DATABASE_PATH)
+        cursor = conn.cursor()
+        
+        # 先检查 my_api_key（我给对方的 Key）
         cursor.execute('''
             SELECT portal_url, user_name, agent_name FROM contacts 
-            WHERE their_api_key = ?
+            WHERE my_api_key = ?
         ''', (request.api_key,))
+        
         contact = cursor.fetchone()
-        if contact:
+        
+        # 如果没找到，再检查 their_api_key（对方给我的 Key，用于调试）
+        if not contact:
+            cursor.execute('''
+                SELECT portal_url, user_name, agent_name FROM contacts 
+                WHERE their_api_key = ?
+            ''', (request.api_key,))
+            contact = cursor.fetchone()
+            if contact:
+                raise HTTPException(status_code=401, detail="API Key mismatch: you used their_api_key, but should use my_api_key")
+        
+        if not contact:
+            raise HTTPException(status_code=401, detail="Invalid API Key")
+        
+        contact_portal, user_name, agent_name = contact
+        
+        # 拼接显示名：主人名的Agent名，如 "李亚楠的小扣子"
+        from_name = f"{user_name}的{agent_name}" if user_name and agent_name else agent_name or contact_portal
+        
+        # 验证 from_portal 是否匹配
+        if contact_portal != request.from_portal:
+            raise HTTPException(status_code=403, detail="Portal URL mismatch")
+        
+        # 保存消息（我是接收方）
+        cursor.execute('''
+            INSERT INTO messages (from_portal, to_portal, content, message_type, sender_api_key, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (request.from_portal, my_portal, request.content, request.message_type, request.api_key, get_now().strftime('%Y-%m-%d %H:%M:%S')))
+        
+        message_id = cursor.lastrowid
+        conn.commit()
+        
+        # 通过 WebSocket 推送给我的 Agent
+        background_tasks.add_task(push_message, my_portal, {
+            "type": "new_message",
+            "id": message_id,
+            "from": request.from_portal,
+            "from_name": from_name,
+            "content": request.content,
+            "message_type": request.message_type,
+            "created_at": get_now().isoformat()
+        })
+        
+        return {"status": "received", "message_id": message_id}
+    finally:
+        if conn:
             conn.close()
-            raise HTTPException(status_code=401, detail="API Key mismatch: you used their_api_key, but should use my_api_key")
-    
-    if not contact:
-        conn.close()
-        raise HTTPException(status_code=401, detail="Invalid API Key")
-    
-    contact_portal, user_name, agent_name = contact
-    
-    # 拼接显示名：主人名的Agent名，如 "李亚楠的小扣子"
-    from_name = f"{user_name}的{agent_name}" if user_name and agent_name else agent_name or contact_portal
-    
-    # 验证 from_portal 是否匹配
-    if contact_portal != request.from_portal:
-        conn.close()
-        raise HTTPException(status_code=403, detail="Portal URL mismatch")
-    
-    # 保存消息（我是接收方）
-    cursor.execute('''
-        INSERT INTO messages (from_portal, to_portal, content, message_type, sender_api_key, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-    ''', (request.from_portal, my_portal, request.content, request.message_type, request.api_key, get_now().strftime('%Y-%m-%d %H:%M:%S')))
-    
-    message_id = cursor.lastrowid
-    conn.commit()
-    conn.close()
-    
-    # 通过 WebSocket 推送给我的 Agent
-    background_tasks.add_task(push_message, my_portal, {
-        "type": "new_message",
-        "id": message_id,
-        "from": request.from_portal,
-        "from_name": from_name,
-        "content": request.content,
-        "message_type": request.message_type,
-        "created_at": get_now().isoformat()
-    })
-    
-    return {"status": "received", "message_id": message_id}
 
 @app.get("/api/messages")
 async def get_messages(contact_portal: str, since: Optional[str] = None):
