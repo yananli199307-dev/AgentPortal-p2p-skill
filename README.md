@@ -116,8 +116,8 @@ python3 -m uvicorn src.main:app --host 127.0.0.1 --port 8080
 | `OUTGOING` | `contacts.OUTGOING` | 我们发给朋友的 Key |
 | `INCOMING` | `contacts.INCOMING` | 朋友发给我们的 Key |
 
-> - **OUTGOING**：我们给对方，对方用来证明身份
-> - **INCOMING**：对方给我们，我们用来验证对方身份
+> - **OUTGOING**：我们给对方，对方用来访问我们的 Portal
+> - **INCOMING**：对方给我们，我们用来访问对方 Portal
 
 ### 2. 发送消息（新架构 v0.5）
 

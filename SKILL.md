@@ -90,8 +90,8 @@ OPENCLAW_HOOKS_TOKEN=你的hooks token
 | `OUTGOING` | `contacts.OUTGOING` | 我们发给朋友的 Key |
 | `INCOMING` | `contacts.INCOMING` | 朋友发给我们的 Key |
 
-> - **OUTGOING**：我们给对方，对方用来证明身份
-> - **INCOMING**：对方给我们，我们用来验证对方身份
+> - **OUTGOING**：我们给对方，对方用来访问我们的 Portal
+> - **INCOMING**：对方给我们，我们用来访问对方 Portal
 
 ### 3. 启动 Bridge
 
