@@ -39,6 +39,46 @@ def format_datetime(dt):
 os.makedirs(os.path.dirname(DATABASE_PATH), exist_ok=True)
 
 # 数据库初始化
+
+def get_table_columns(cursor, table_name):
+    """获取表的列名"""
+    cursor.execute(f"PRAGMA table_info({table_name})")
+    return [row[1] for row in cursor.fetchall()]
+
+def run_migrations():
+    """数据库迁移脚本（只新增/重命名，不删除）"""
+    conn = sqlite3.connect(DATABASE_PATH)
+    cursor = conn.cursor()
+    
+    try:
+        # 迁移 contacts 表
+        columns = get_table_columns(cursor, 'contacts')
+        
+        # 1. 新增 SHARED_KEY 列（如果不存在）
+        if 'SHARED_KEY' not in columns:
+            cursor.execute('ALTER TABLE contacts ADD COLUMN SHARED_KEY TEXT')
+            print("Added column: SHARED_KEY")
+        
+        # 2. 重命名 display_name（如果需要）
+        if 'display_name' in columns and 'DISPLAY_NAME' not in columns:
+            cursor.execute('ALTER TABLE contacts RENAME COLUMN display_name TO DISPLAY_NAME')
+            print("Renamed column: display_name -> DISPLAY_NAME")
+        
+        # 迁移 api_keys 表
+        api_keys_columns = get_table_columns(cursor, 'api_keys')
+        
+        if 'description' not in api_keys_columns:
+            cursor.execute('ALTER TABLE api_keys ADD COLUMN description TEXT')
+            print("Added column: description")
+        
+        conn.commit()
+        print("数据库迁移完成")
+    except Exception as e:
+        print(f"迁移跳过: {e}")
+        conn.rollback()
+    finally:
+        conn.close()
+
 def init_db():
     conn = sqlite3.connect(DATABASE_PATH)
     cursor = conn.cursor()
@@ -110,6 +150,9 @@ def init_db():
     conn.close()
 
 init_db()
+
+# 运行数据库迁移
+run_migrations()
 
 # 数据模型
 class GuestMessageRequest(BaseModel):
@@ -1070,3 +1113,66 @@ if __name__ == "__main__":
     import os
     port = int(os.getenv("PORT", 8080))
     uvicorn.run(app, host="0.0.0.0", port=port)
+
+# ========== 数据库迁移脚本 ==========
+def get_table_columns(cursor, table_name):
+    """获取表的列名"""
+    cursor.execute(f"PRAGMA table_info({table_name})")
+    return [row[1] for row in cursor.fetchall()]
+
+def migrate_contacts_table(cursor):
+    """迁移 contacts 表（只新增/重命名，不删除）"""
+    columns = get_table_columns(cursor, 'contacts')
+    
+    # 需要新增的列
+    new_columns = {
+        'SHARED_KEY': 'TEXT',
+    }
+    
+    # 需要重命名的列（从旧名到新名）
+    rename_columns = {
+        'display_name': 'DISPLAY_NAME',  # 如果有的话
+    }
+    
+    # 1. 新增列
+    for col_name, col_type in new_columns.items():
+        if col_name not in columns:
+            cursor.execute(f'ALTER TABLE contacts ADD COLUMN {col_name} {col_type}')
+            print(f"Added column: {col_name}")
+    
+    # 2. 重命名列
+    for old_name, new_name in rename_columns.items():
+        if old_name in columns and new_name not in columns:
+            cursor.execute(f'ALTER TABLE contacts RENAME COLUMN {old_name} TO {new_name}')
+            print(f"Renamed column: {old_name} -> {new_name}")
+
+def migrate_api_keys_table(cursor):
+    """迁移 api_keys 表"""
+    columns = get_table_columns(cursor, 'api_keys')
+    
+    # 需要新增的列
+    new_columns = {
+        'description': 'TEXT',
+    }
+    
+    for col_name, col_type in new_columns.items():
+        if col_name not in columns:
+            cursor.execute(f'ALTER TABLE api_keys ADD COLUMN {col_name} {col_type}')
+            print(f"Added column: {col_name}")
+
+def run_migrations():
+    """运行所有迁移"""
+    conn = sqlite3.connect(DATABASE_PATH)
+    cursor = conn.cursor()
+    
+    try:
+        migrate_contacts_table(cursor)
+        migrate_api_keys_table(cursor)
+        conn.commit()
+        print("数据库迁移完成")
+    except Exception as e:
+        print(f"迁移错误: {e}")
+        conn.rollback()
+    finally:
+        conn.close()
+
