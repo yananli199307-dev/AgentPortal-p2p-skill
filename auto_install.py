@@ -202,6 +202,9 @@ sudo systemctl restart nginx
 # 申请 SSL
 certbot --nginx -d {domain} --non-interactive --agree-tos --email {email}
 
+# 确保 Nginx 正确重启以应用 SSL 配置
+sudo systemctl restart nginx
+
 # 创建 systemd 服务
 sudo tee /etc/systemd/system/agent-p2p.service > /dev/null << 'EOF'
 [Unit]
