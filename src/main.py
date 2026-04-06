@@ -1176,3 +1176,51 @@ def run_migrations():
     finally:
         conn.close()
 
+
+class SentMessageRequest(BaseModel):
+    """记录已发送的消息"""
+    api_key: str
+    to_portal: str
+    content: str
+    message_type: str = "text"
+
+@app.post("/api/message/sent")
+async def record_sent_message(request: SentMessageRequest, background_tasks: BackgroundTasks):
+    my_portal = get_my_portal_url()
+    conn = None
+    
+    try:
+        conn = sqlite3.connect(DATABASE_PATH)
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT portal_url FROM api_keys WHERE key_id = ? AND is_active = TRUE', (request.api_key,))
+        result = cursor.fetchone()
+        if not result or result[0] != my_portal:
+            raise HTTPException(status_code=401, detail="Invalid API Key")
+        
+        cursor.execute('INSERT INTO messages (from_portal, to_portal, content, message_type, sender_api_key, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+            (my_portal, request.to_portal, request.content, request.message_type, request.api_key, get_now().strftime('%Y-%m-%d %H:%M:%S')))
+        
+        message_id = cursor.lastrowid
+        conn.commit()
+        
+        background_tasks.add_task(push_message, my_portal, {
+            "type": "new_message",
+            "id": message_id,
+            "from": my_portal,
+            "from_name": "我",
+            "content": request.content,
+            "message_type": request.message_type,
+            "created_at": get_now().isoformat()
+        })
+        
+        return {"status": "recorded", "message_id": message_id}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"记录发送消息失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
