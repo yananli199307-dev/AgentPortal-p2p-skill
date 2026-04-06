@@ -1131,7 +1131,8 @@ def migrate_contacts_table(cursor):
     
     # 需要重命名的列（从旧名到新名）
     rename_columns = {
-        'display_name': 'DISPLAY_NAME',  # 如果有的话
+        'contact_portal': 'portal_url',  # 旧版本
+        'display_name': 'DISPLAY_NAME',  # 旧版本
     }
     
     # 1. 新增列
