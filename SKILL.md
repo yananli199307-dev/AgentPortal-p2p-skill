@@ -149,6 +149,8 @@ send_message(contact_id=1, content="你好！")
 > - 用户名：`admin`
 > - 密码：部署完成后会显示在终端，并保存到 `~/.openclaw/agent-p2p-admin.txt`
 > - 如需修改密码，SSH 到 VPS 执行：`sudo htpasswd /etc/nginx/.htpasswd admin`
+>
+> ⚠️ **Agent 注意**：部署完成后必须向用户展示初始密码，并询问是否需要修改。
 
 ## 更新
 
