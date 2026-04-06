@@ -144,12 +144,48 @@ mkdir -p data
 # 启动服务
 python3 -c "from src.main import init_db; init_db()"
 
+# 生成随机密码
+ADMIN_USER="admin"
+ADMIN_PASS=$(openssl rand -base64 12)
+echo "ADMIN_USER=$ADMIN_USER" | sudo tee /opt/agent-p2p/.env
+echo "ADMIN_PASS=$ADMIN_PASS" | sudo tee -a /opt/agent-p2p/.env
+sudo chmod 600 /opt/agent-p2p/.env
+
+# 创建 Nginx 密码文件
+sudo apt-get install -y apache2-utils
+sudo htpasswd -cb /etc/nginx/.htpasswd "$ADMIN_USER" "$ADMIN_PASS"
+
 # 配置 Nginx
 sudo tee /etc/nginx/sites-available/agent-p2p > /dev/null << 'EOF'
 server {{
     listen 80;
     server_name {domain};
     
+    # API - 公开访问
+    location /api/ {{
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }}
+    
+    # WebSocket
+    location /ws/ {{
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection upgrade;
+    }}
+    
+    # 管理后台 - 需要密码
+    location /static/admin.html {{
+        auth_basic "Agent P2P Admin";
+        auth_basic_user_file /etc/nginx/.htpasswd;
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $proxy_add_x_forwarded_for;
+    }}
+    
+    # 静态资源 - 公开访问
     location / {{
         proxy_pass http://127.0.0.1:8080;
         proxy_set_header Host $host;
@@ -189,6 +225,9 @@ sudo systemctl daemon-reload
 sudo systemctl enable agent-p2p
 sudo systemctl start agent-p2p
 
+# 输出管理员密码（用于本地保存）
+echo "ADMIN_CREDENTIALS: $ADMIN_USER:$ADMIN_PASS"
+
 echo "部署完成"
 """
     
@@ -199,6 +238,14 @@ echo "部署完成"
     
     if result.returncode == 0:
         print(f"  ✅ Portal 部署成功")
+        # 提取管理员密码
+        for line in result.stdout.split('\n'):
+            if line.startswith('ADMIN_CREDENTIALS:'):
+                admin_creds = line.replace('ADMIN_CREDENTIALS:', '').strip()
+                print(f"  🔐 管理后台密码已生成")
+                # 保存到类变量供后续使用
+                deploy_portal.admin_creds = admin_creds
+                break
         return True
     
     print(f"  ❌ 部署失败")
@@ -324,6 +371,21 @@ def main():
         print(f"\nPortal: https://{args.domain}")
         print(f"管理后台: https://{args.domain}/static/admin.html")
         print(f"API Key: {api_key[:20]}...")
+        
+        # 获取并显示管理员密码
+        admin_creds = getattr(deploy_portal, 'admin_creds', 'admin:unknown')
+        admin_user, admin_pass = admin_creds.split(':') if ':' in admin_creds else ('admin', 'unknown')
+        
+        print("\n🔐 管理后台登录信息：")
+        print(f"  用户名: {admin_user}")
+        print(f"  密码: {admin_pass}")
+        print(f"  请妥善保管，首次登录后建议修改密码")
+        
+        # 保存密码到本地文件
+        admin_file = Path.home() / ".openclaw" / "agent-p2p-admin.txt"
+        admin_file.parent.mkdir(parents=True, exist_ok=True)
+        admin_file.write_text(f"Portal: https://{args.domain}\n用户名: {admin_user}\n密码: {admin_pass}\n")
+        
         print(f"\n所有组件已连接并测试通过！")
     else:
         print("\n⚠️ 安装完成，但连接测试未通过，请检查日志")
