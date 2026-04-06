@@ -378,8 +378,24 @@ def main():
         
         print("\n🔐 管理后台登录信息：")
         print(f"  用户名: {admin_user}")
-        print(f"  密码: {admin_pass}")
-        print(f"  请妥善保管，首次登录后建议修改密码")
+        print(f"  初始密码: {admin_pass}")
+        
+        # 询问是否修改密码
+        change_pass = input("\n是否修改管理后台密码? [y/N]: ").strip().lower()
+        if change_pass in ('y', 'yes'):
+            new_pass = input("请输入新密码: ").strip()
+            if new_pass:
+                # 更新 VPS 上的密码
+                update_cmd = f"ssh -i {args.ssh_key} ubuntu@{args.vps_ip} 'sudo htpasswd -cb /etc/nginx/.htpasswd {admin_user} \"{new_pass}\" && echo 密码已更新'"
+                result = subprocess.run(update_cmd, shell=True, capture_output=True, text=True)
+                if result.returncode == 0:
+                    admin_pass = new_pass
+                    print("✅ 密码已更新")
+                else:
+                    print(f"⚠️ 密码更新失败: {result.stderr}")
+        
+        print(f"  当前密码: {admin_pass}")
+        print(f"  请妥善保管")
         
         # 保存密码到本地文件
         admin_file = Path.home() / ".openclaw" / "agent-p2p-admin.txt"
