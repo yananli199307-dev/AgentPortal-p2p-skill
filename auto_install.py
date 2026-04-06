@@ -22,9 +22,37 @@ python3 auto_install.py \
 import os
 import sys
 import time
+import json
 import subprocess
 import argparse
 from pathlib import Path
+
+
+def get_hooks_token():
+    """自动获取 OpenClaw hooks token"""
+    # 1. 先从 openclaw.json 读取
+    openclaw_config = Path.home() / ".openclaw" / "openclaw.json"
+    if openclaw_config.exists():
+        try:
+            config = json.loads(openclaw_config.read_text())
+            token = config.get("hooks", {}).get("token")
+            if token:
+                return token
+        except Exception as e:
+            print(f"  ⚠️ 读取 openclaw.json 失败: {e}")
+    
+    # 2. 再从 gateway.env 读取
+    gateway_env = Path.home() / ".openclaw" / "gateway.env"
+    if gateway_env.exists():
+        try:
+            env_content = gateway_env.read_text()
+            for line in env_content.splitlines():
+                if line.startswith("OPENCLAW_HOOKS_TOKEN="):
+                    return line.split("=", 1)[1].strip()
+        except Exception as e:
+            print(f"  ⚠️ 读取 gateway.env 失败: {e}")
+    
+    return None
 
 
 def run(cmd, check=True):
@@ -243,7 +271,7 @@ def test_connection(domain, api_key, gateway_url, hooks_token):
     
     # 测试 OpenClaw
     result = subprocess.run(
-        f"curl -s -X POST {gateway_url}/hooks/wake -H 'Authorization: Bearer {hooks_token}' -d '{{\"text\":\"测试\"}}'",
+        f"curl -s -X POST {gateway_url}/hooks/wake -H 'Authorization: Bearer {hooks_token}' -H 'Content-Type: application/json' -d '{{\"text\":\"测试\"}}'",
         shell=True, capture_output=True, text=True
     )
     if result.returncode == 0:
@@ -262,9 +290,21 @@ def main():
     parser.add_argument('--ssh-key', required=True, help='SSH 私钥路径')
     parser.add_argument('--email', required=True, help='邮箱')
     parser.add_argument('--gateway-url', default='http://127.0.0.1:18789', help='Gateway URL')
-    parser.add_argument('--hooks-token', required=True, help='Hooks Token')
+    parser.add_argument('--hooks-token', default=None, help='Hooks Token（可选，不填则自动读取）')
     
     args = parser.parse_args()
+    
+    # 自动获取 hooks token
+    hooks_token = args.hooks_token
+    if not hooks_token:
+        print("\n🔍 正在自动获取 hooks token...")
+        hooks_token = get_hooks_token()
+        if hooks_token:
+            print(f"  ✅ 从配置文件读取: {hooks_token[:20]}...")
+        else:
+            print("  ❌ 无法自动获取 hooks token，请通过 --hooks-token 参数传入")
+            print("  获取方式：cat ~/.openclaw/openclaw.json | grep token")
+            sys.exit(1)
     
     print("=" * 60)
     print("Agent P2P 自动安装")

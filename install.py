@@ -388,13 +388,27 @@ AGENTP2P_HUB_URL={self.current_portal.hub_url}
         
         # 检查是否需要配置 OpenClaw hooks
         hooks_token = None
+        
+        # 1. 先从 openclaw.json 读取
         if self.openclaw_config.exists():
             try:
                 config = json.loads(self.openclaw_config.read_text())
                 hooks_token = config.get("hooks", {}).get("token")
-            except:
-                pass
+            except Exception as e:
+                print(f"  ⚠️ 读取 openclaw.json 失败: {e}")
         
+        # 2. 再从 gateway.env 读取（兼容已有配置）
+        if not hooks_token and self.gateway_env.exists():
+            try:
+                env_content = self.gateway_env.read_text()
+                for line in env_content.splitlines():
+                    if line.startswith("OPENCLAW_HOOKS_TOKEN="):
+                        hooks_token = line.split("=", 1)[1].strip()
+                        break
+            except Exception as e:
+                print(f"  ⚠️ 读取 gateway.env 失败: {e}")
+        
+        # 3. 如果都没有，生成新的 token 并提示用户配置
         if not hooks_token:
             import secrets
             hooks_token = secrets.token_urlsafe(32)
@@ -404,8 +418,8 @@ AGENTP2P_HUB_URL={self.current_portal.hub_url}
                 f.write(f"OPENCLAW_HOOKS_TOKEN={hooks_token}\n")
                 f.write("OPENCLAW_GATEWAY_URL=http://127.0.0.1:18789\n")
             
-            print("⚠️  需要配置 OpenClaw Gateway")
-            print(f"\n请在 {self.openclaw_config} 中添加:")
+            print("⚠️  未找到 hooks token，已生成新的 token")
+            print(f"\n请在 {self.openclaw_config} 中更新 hooks 配置:")
             print(json.dumps({
                 "hooks": {
                     "enabled": True,
