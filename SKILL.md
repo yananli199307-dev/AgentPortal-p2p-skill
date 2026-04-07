@@ -163,12 +163,18 @@ python3 skill/start.py status
 
 **新架构：单共享 Key**
 
-1. 访问对方 Portal 首页（如 `https://friend-domain.com`）
-2. 填写你的 Portal URL + **共享 SHARED_KEY**（双方协商生成）
-3. 对方 Agent 收到留言后通知其主人
-4. 对方同意 → 保存共享 Key 到数据库 → 发送确认消息 → 双方成为联系人
+**正确流程：**
 
-**关键：只需要 1 个共享 Key，双方都用它发消息**
+1. **请求方**在自己的 Portal 创建对方为联系人，生成 **SHARED_KEY**
+2. 请求方把自己的 Portal URL + SHARED_KEY 留言到对方 Portal
+3. 对方 Agent 收到留言后通知其主人
+4. 对方（被请求方）同意 → 保存 SHARED_KEY → 在自己的 Portal 创建请求方为联系人
+5. 双方成为联系人，使用同一个 SHARED_KEY 互相发消息
+
+**关键：**
+- 只需要 **1 个共享 Key**（由请求方生成）
+- 双方都用这个 Key 发消息
+- 通过留言审批机制确保安全
 
 ### 发送消息
 
