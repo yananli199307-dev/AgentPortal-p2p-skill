@@ -76,6 +76,15 @@ def setup_hooks_config(config):
     existing_token = config["hooks"].get("token")
     token = existing_token if existing_token else generate_hooks_token()
     
+    # 检查是否与 gateway.auth.token 冲突
+    gateway_auth_token = config.get("gateway", {}).get("auth", {}).get("token")
+    if gateway_auth_token and token == gateway_auth_token:
+        print("⚠️ 检测到 hooks.token 与 gateway.auth.token 冲突，生成新的 token")
+        token = generate_hooks_token()
+        # 确保新生成的 token 仍然不同
+        while token == gateway_auth_token:
+            token = generate_hooks_token()
+    
     config["hooks"]["enabled"] = True
     config["hooks"]["path"] = "/hooks"
     config["hooks"]["token"] = token
