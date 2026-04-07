@@ -405,7 +405,21 @@ def main():
         admin_file.parent.mkdir(parents=True, exist_ok=True)
         admin_file.write_text(f"Portal: https://{args.domain}\n用户名: {admin_user}\n密码: {admin_pass}\n")
         
-        print(f"\n所有组件已连接并测试通过！")
+        # 最后一步：配置 OpenClaw Hooks
+        print("\n" + "=" * 60)
+        print("🔧 最后一步：配置 OpenClaw Hooks")
+        print("=" * 60)
+        
+        setup_script = Path(__file__).parent / "scripts" / "setup_openclaw_hooks.py"
+        if setup_script.exists():
+            run_setup = input("\n是否配置 OpenClaw Hooks（推荐）? [Y/n]: ").strip().lower()
+            if not run_setup or run_setup in ('y', 'yes'):
+                subprocess.run([sys.executable, str(setup_script)])
+        else:
+            print("⚠️ 未找到配置脚本，请手动配置:")
+            print("  python3 scripts/setup_openclaw_hooks.py")
+        
+        print(f"\n✅ 所有组件已连接并测试通过！")
     else:
         print("\n⚠️ 安装完成，但连接测试未通过，请检查日志")
         sys.exit(1)
