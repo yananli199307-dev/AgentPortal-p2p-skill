@@ -80,6 +80,8 @@ OPENCLAW_HOOKS_TOKEN=你的hooks token
 - Gateway 端口：运行 `openclaw status` 查看（默认 18789）
 - Hooks Token：`~/.openclaw/openclaw.json` 中 `hooks.token`
 
+> 📚 **完整环境变量参考**：参见 [ENV.md](ENV.md)
+
 > ⚠️ 注意：`OPENCLAW_GATEWAY_URL` 端口需根据你实际的 OpenClaw Gateway 配置填写，运行 `openclaw status` 可查看。
 
 ### API Key 类型说明
