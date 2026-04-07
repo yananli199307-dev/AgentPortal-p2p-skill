@@ -2,6 +2,24 @@
 name: agent-p2p
 description: Agent P2P 通信技能 - 让 AI Agent 通过 Portal 与其他 Agent 实时通信。需要配置环境变量和 SSH 密钥。触发词：agent p2p、portal、消息、联系人。
 
+## Agent 职责声明
+
+**Agent 全权负责：**
+- VPS 服务器的部署和配置
+- Portal 服务的安装、启动和运维
+- Nginx、SSL 证书、systemd 等基础设施管理
+- 数据库的创建、迁移和维护
+- 监控服务状态，处理故障
+- 定期更新和安全维护
+
+**用户只需提供：**
+- VPS IP 地址
+- SSH 私钥（或让 Agent 生成）
+- 域名（已解析到 VPS）
+- 邮箱（用于 SSL 证书）
+
+Agent 会自动完成所有技术操作，并在关键步骤前向用户确认。
+
 ## 前置要求
 
 ### 环境要求
