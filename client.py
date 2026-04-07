@@ -86,9 +86,8 @@ class AgentP2PClient:
     """Agent P2P 客户端"""
     
     def __init__(self):
-        # v0.2: 优先使用 API Key，兼容旧版 Token
+        # v0.2+: 使用 API Key
         self.api_key = os.environ.get("AGENTP2P_API_KEY")
-        self.token = os.environ.get("AGENTP2P_TOKEN")  # 兼容旧版
         self.hub_url = os.environ.get("AGENTP2P_HUB_URL", "https://your-domain.com")
         self.gateway_url = os.environ.get("OPENCLAW_GATEWAY_URL", "http://127.0.0.1:18789")
         self.hooks_token = os.environ.get("OPENCLAW_HOOKS_TOKEN")
@@ -111,9 +110,8 @@ class AgentP2PClient:
         
     def validate_config(self) -> bool:
         """验证配置"""
-        # v0.2: 优先检查 API Key，兼容旧版 Token
-        if not self.api_key and not self.token:
-            logger.error("AGENTP2P_API_KEY 未设置 (v0.2 后使用 API Key 替代 Token)")
+        if not self.api_key:
+            logger.error("AGENTP2P_API_KEY 未设置")
             return False
         if not self.hooks_token:
             logger.error("OPENCLAW_HOOKS_TOKEN 未设置")
@@ -143,11 +141,8 @@ class AgentP2PClient:
     def check_pending_auth(self):
         """检查待处理的验证请求和 Token（Agent 自动响应）"""
         try:
-            # 获取自己的 portal_url
-            import jwt
-            import re
-            payload = jwt.decode(self.token, options={"verify_signature": False})
-            my_portal = payload.get("sub")
+            # 使用配置的 hub_url 作为 portal_url
+            my_portal = self.hub_url
             
             if not my_portal:
                 return
@@ -350,9 +345,7 @@ class AgentP2PClient:
     def connect(self):
         """建立 WebSocket 连接"""
         ws_url = self.hub_url.replace("https://", "wss://").replace("http://", "ws://")
-        # v0.2: 使用 API Key 替代 Token
-        auth_key = self.api_key or self.token
-        ws_url = f"{ws_url}/ws/agent?api_key={auth_key}"
+        ws_url = f"{ws_url}/ws/agent?api_key={self.api_key}"
         
         logger.info(f"🌐 连接 {ws_url[:80]}...")
         

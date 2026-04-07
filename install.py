@@ -361,7 +361,7 @@ WantedBy=multi-user.target
         
         env_content = f"""# Agent P2P 配置
 # 默认 Portal: {self.current_portal.name}
-AGENTP2P_TOKEN={self.current_portal.agent_token}
+AGENTP2P_API_KEY={self.current_portal.agent_token}
 AGENTP2P_HUB_URL={self.current_portal.hub_url}
 """
         
@@ -447,7 +447,7 @@ AGENTP2P_HUB_URL={self.current_portal.hub_url}
         
         # 启动新进程
         env = os.environ.copy()
-        env["AGENTP2P_TOKEN"] = self.current_portal.agent_token
+        env["AGENTP2P_API_KEY"] = self.current_portal.agent_token
         env["AGENTP2P_HUB_URL"] = self.current_portal.hub_url
         env["OPENCLAW_HOOKS_TOKEN"] = hooks_token
         env["OPENCLAW_GATEWAY_URL"] = "http://127.0.0.1:18789"

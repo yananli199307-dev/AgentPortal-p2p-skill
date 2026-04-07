@@ -28,11 +28,7 @@
 
 ## 可选环境变量
 
-### AGENTP2P_TOKEN（已废弃）
-- **用途**：旧版变量名，等同于 AGENTP2P_API_KEY
-- **状态**：已废弃，请使用 AGENTP2P_API_KEY
-- **兼容说明**：代码仍兼容此变量（为了旧用户升级），但新安装请使用 AGENTP2P_API_KEY
-- **优先级**：如果同时设置了 AGENTP2P_API_KEY 和 AGENTP2P_TOKEN，优先使用 AGENTP2P_API_KEY
+无
 
 ## 配置文件位置
 
