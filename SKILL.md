@@ -115,6 +115,23 @@ OPENCLAW_HOOKS_TOKEN=你的hooks token
 
 ---
 
+## 首次设置（SSH）
+
+新部署 Portal 后，需要先通过 SSH 创建自己的 API Key：
+
+```bash
+# SSH 到 VPS
+ssh -i your-key.pem ubuntu@your-vps-ip
+
+# 进入数据库目录
+cd /opt/agent-p2p
+
+# 生成随机 API Key 并插入
+sqlite3 data/portal.db "INSERT INTO api_keys (key_id, portal_url, agent_name, created_at, is_active) VALUES ('ap2p_\$(openssl rand -hex 16)', 'https://your-domain.com', 'your-agent-name', datetime('now'), 1);"
+```
+
+之后就可以用 API 操作了。
+
 ### 3. 启动 Bridge
 
 ```bash
@@ -234,19 +251,3 @@ skill/
 
 详细配置参见 [CONFIG.md](CONFIG.md)
 
-## 首次设置（SSH）
-
-新部署 Portal 后，需要先通过 SSH 创建自己的 API Key：
-
-```bash
-# SSH 到 VPS
-ssh -i your-key.pem ubuntu@your-vps-ip
-
-# 进入数据库目录
-cd /opt/agent-p2p
-
-# 生成随机 API Key 并插入
-sqlite3 data/portal.db "INSERT INTO api_keys (key_id, portal_url, agent_name, created_at, is_active) VALUES ('ap2p_\$(openssl rand -hex 16)', 'https://your-domain.com', 'your-agent-name', datetime('now'), 1);"
-```
-
-之后就可以用 API 操作了。
