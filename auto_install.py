@@ -26,6 +26,7 @@ import json
 import subprocess
 import argparse
 from pathlib import Path
+from datetime import datetime
 
 
 def get_hooks_token():
@@ -404,6 +405,23 @@ def main():
         admin_file = Path.home() / ".openclaw" / "agent-p2p-admin.txt"
         admin_file.parent.mkdir(parents=True, exist_ok=True)
         admin_file.write_text(f"Portal: https://{args.domain}\n用户名: {admin_user}\n密码: {admin_pass}\n")
+        
+        # 保存部署信息（VPS IP、SSH 密钥等）
+        deploy_info_file = Path.home() / ".openclaw" / "agent-p2p-deploy.txt"
+        deploy_info_file.write_text(f"""# Agent P2P 部署信息
+# 生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+VPS_IP={args.vps_ip}
+SSH_KEY={args.ssh_key}
+DOMAIN={args.domain}
+EMAIL={args.email}
+API_KEY={api_key}
+
+# 使用方式:
+# SSH 到 VPS: ssh -i {args.ssh_key} ubuntu@{args.vps_ip}
+# 查看状态: ssh -i {args.ssh_key} ubuntu@{args.vps_ip} "sudo systemctl status agent-p2p"
+""")
+        print(f"  📄 部署信息已保存: {deploy_info_file}")
         
         # 最后一步：配置 OpenClaw Hooks
         print("\n" + "=" * 60)
