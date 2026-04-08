@@ -178,7 +178,7 @@ class AgentP2PSkill:
                 'type': 'guest_message',
                 'content': content,
                 'message_id': msg_id,
-                'priority': 'normal',
+                'priority': 'high',
                 'timestamp': datetime.now().isoformat(),
                 'actions': ['查看', '回复', '忽略']
             }
