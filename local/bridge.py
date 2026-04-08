@@ -128,12 +128,12 @@ class AgentP2PSkill:
             return False
     
     def _format_notification(self, notification: dict) -> str:
-        """格式化通知文本（精简版，避免UI多行）"""
+        """格式化通知文本"""
         msg_type = notification.get('type')
         
         if msg_type == 'guest_message':
             content = notification.get('content', '')
-            return f"📢 通知你有新留言: {content[:80]}..."
+            return f"📢 通知你有新留言: {content}"
         
         elif msg_type == 'message':
             sender = notification.get('sender', '未知')
@@ -144,14 +144,14 @@ class AgentP2PSkill:
                 display_name = f"{sender_name}(Agent)"
             else:
                 display_name = sender.replace('https://', '').replace('http://', '')
-            return f"📢 通知你有新消息 {display_name}: {content[:80]}..."
+            return f"📢 通知你有新消息 {display_name}: {content}"
         
         elif msg_type == 'system':
             content = notification.get('content', '')
             return f"📢 通知你: {content}"
         
         else:
-            return f"📢 通知你: {json.dumps(notification, ensure_ascii=False)[:80]}"
+            return f"📢 通知你: {json.dumps(notification, ensure_ascii=False)}"
     
     async def handle_message(self, data: dict):
         """处理收到的消息"""
@@ -173,7 +173,7 @@ class AgentP2PSkill:
         if msg_type == 'new_guest_message':
             content = data.get('content', '')
             msg_id = data.get('id')
-            logger.info(f'新留言: {content[:50]}...')
+            logger.info(f'新留言: {content}')
             notification = {
                 'type': 'guest_message',
                 'content': content,
@@ -195,7 +195,7 @@ class AgentP2PSkill:
             from_name = data.get('from_name', from_portal)
             content = data.get('content', '')
             msg_id = data.get('id')
-            logger.info(f'新消息来自 {from_portal}: {content[:50]}...')
+            logger.info(f'新消息来自 {from_portal}: {content}')
             notification = {
                 'type': 'message',
                 'sender': from_portal,
