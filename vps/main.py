@@ -283,14 +283,14 @@ async def leave_message(request: GuestMessageRequest, request_obj: Request):
     await manager.broadcast({
         "type": "new_guest_message",
         "message_id": message_id,
-        "content": request.content[:100],
+        "content": request.content,
         "created_at": get_now().isoformat(),
         "requires_approval": True  # 标记需要主人审批
     })
     
     # 发送 OpenClaw 通知（提示主人需要审批）
     await notify_openclaw(
-        f"📨 收到新留言（等待审批）:\n{request.content[:200]}\n\n"
+        f"📨 收到新留言（等待审批）:\n{request.content}\n\n"
         f"回复以下指令处理:\n"
         f"- 同意添加: 同意 {message_id}\n"
         f"- 拒绝添加: 拒绝 {message_id}\n"
