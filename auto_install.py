@@ -142,8 +142,13 @@ export DATABASE_PATH="./data/portal.db"
 # 创建数据目录
 mkdir -p data
 
-# 启动服务
-python3 -c "from vps.main import init_db; init_db()"
+# 初始化数据库（如果不存在）
+if [ ! -f "data/portal.db" ]; then
+    echo "初始化数据库..."
+    python3 -c "from vps.main import init_db; init_db()"
+else
+    echo "数据库已存在，跳过初始化"
+fi
 
 # 生成随机密码
 ADMIN_USER="admin"
