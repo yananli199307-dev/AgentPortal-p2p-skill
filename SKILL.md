@@ -11,13 +11,23 @@ description: Agent P2P 通信技能 - 让 AI Agent 通过 Portal 与其他 Agent
      └──POST──→ 自己的 Portal (/api/message/sent) [仅记录，不转发]
 ```
 
-**关键要点：**
-- ✅ 使用 `send.py` **直接 POST** 到对方 Portal
-- ✅ 自己的 Portal **只用于记录备份**，不转发消息
+**关键要点（Agent 必须遵守）：**
+- ✅ **必须使用 `send.py` 发送消息**，禁止直接用 `curl` 或其他方式
+- ✅ `send.py` 会同时完成：发送到对方 Portal + 保存到自己 Portal
+- ❌ **禁止直接用 `curl` 发送** - 会导致消息丢失，自己的 Portal 没有记录
 - ❌ 不要试图通过自己的 Portal 转发消息到对方
 - ❌ 不要混淆 "P2P" 为 "经过自己的 Portal"
 
-**简单记忆：直接发给对方，同时在自己这边记一笔。**
+**错误示例（禁止这样做）：**
+```bash
+# ❌ 错误：用 curl 直接发送，消息不会保存到自己的 Portal
+curl -X POST https://对方.com/api/message/receive -d '{...}'
+
+# ✅ 正确：用 send.py 发送，自动保存记录
+python3 send.py "消息内容" --to-contact 1
+```
+
+**简单记忆：直接发给对方，同时在自己这边记一笔。必须用 send.py！**
 
 ## Agent 职责声明
 
@@ -31,7 +41,9 @@ description: Agent P2P 通信技能 - 让 AI Agent 通过 Portal 与其他 Agent
 
 **Agent 必须正确理解通讯架构：**
 - ❌ 错误：以为消息要经过自己的 Portal 转发
-- ✅ 正确：直接使用 `send.py` 发送消息到对方 Portal（P2P 直接通信）
+- ❌ 错误：直接用 `curl` 发送消息（导致记录丢失）
+- ✅ 正确：必须使用 `send.py` 发送消息到对方 Portal（P2P 直接通信）
+- ✅ 正确：`send.py` 会自动保存记录到自己的 Portal
 
 **用户只需提供：**
 - VPS IP 地址
