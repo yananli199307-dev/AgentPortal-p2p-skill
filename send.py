@@ -179,12 +179,12 @@ def send_file(api_key, hub_url, contact_id, file_path):
             f"{to_portal}/api/file/initiate",
             json={
                 "api_key": shared_key,
-                "from_portal": hub_url,
                 "filename": filename,
                 "size": file_size,
                 "md5": file_md5,
                 "chunk_size": CHUNK_SIZE,
-                "chunks_total": chunks_total
+                "chunks_total": chunks_total,
+                "to_portal": to_portal
             },
             verify=False,
             timeout=30
