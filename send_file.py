@@ -336,10 +336,16 @@ def main():
     parser.add_argument("--upload", help="上传分片（file_id）")
     parser.add_argument("--resume", action="store_true", help="断点续传模式")
     parser.add_argument("--status", help="查询传输状态（file_id）")
+    parser.add_argument("--download", help="下载文件（file_id）")
+    parser.add_argument("--output", "-o", help="下载保存路径")
 
     args = parser.parse_args()
 
-    if args.status:
+    if args.download:
+        # 下载文件
+        output = args.output or "."
+        download_file(args.download, output)
+    elif args.status:
         # 查询状态
         check_transfer_status(args.status)
     elif args.confirm:
@@ -368,9 +374,75 @@ def main():
         print("  # 3. 发送方上传分片")
         print("  python3 send_file.py --upload <file_id> -f document.pdf")
         print("")
-        print("  # 4. 查询传输状态")
+        print("  # 4. 接收方下载文件")
+        print("  python3 send_file.py --download <file_id> -o ./downloads/")
+        print("")
+        print("  # 5. 查询传输状态")
         print("  python3 send_file.py --status <file_id>")
 
 
 if __name__ == "__main__":
     main()
+
+def download_file(file_id: str, output_path: str):
+    """下载完整文件"""
+    api_key, hub_url = get_config()
+    if not api_key or not hub_url:
+        print("❌ 配置不完整")
+        return False
+    
+    try:
+        # 查询传输状态
+        resp = requests.get(
+            f"{hub_url}/api/file/status/{file_id}",
+            params={"api_key": api_key},
+            timeout=10
+        )
+        
+        if resp.status_code != 200:
+            print(f"❌ 查询传输状态失败: {resp.status_code}")
+            return False
+        
+        status = resp.json()
+        if status.get("status") != "completed":
+            print(f"❌ 文件未准备好，状态: {status.get('status')}")
+            return False
+        
+        filename = status.get("filename")
+        file_size = status.get("size")
+        
+        print(f"📥 开始下载文件: {filename}")
+        print(f"   大小: {format_size(file_size)}")
+        
+        # 下载文件
+        resp = requests.get(
+            f"{hub_url}/api/file/download/{file_id}",
+            params={"api_key": api_key},
+            stream=True,
+            timeout=300
+        )
+        
+        if resp.status_code != 200:
+            print(f"❌ 下载失败: {resp.status_code}")
+            return False
+        
+        # 保存文件
+        output_path = Path(output_path)
+        if output_path.is_dir():
+            output_path = output_path / filename
+        
+        with open(output_path, "wb") as f:
+            downloaded = 0
+            for chunk in resp.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    if file_size > 0:
+                        print_progress(downloaded, file_size, "下载进度")
+        
+        print(f"\n✅ 文件已保存: {output_path}")
+        return True
+        
+    except Exception as e:
+        print(f"❌ 下载文件失败: {e}")
+        return False
