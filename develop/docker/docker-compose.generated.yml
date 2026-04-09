@@ -1,0 +1,83 @@
+name: agentp2p-dev
+
+services:
+  lobster1:
+    image: ghcr.io/openclaw/openclaw:latest
+    container_name: ap2p-lobster-1
+    env_file:
+      - ../runtime/env1/gateway.env
+    volumes:
+      - ../runtime/env1/lobster-home:/home/node/.openclaw
+      - ../../:/home/node/.openclaw/workspace/skills/agent-p2p
+    ports:
+      - "18790:18789"
+
+  portal1:
+    build:
+      context: ../..
+      dockerfile: develop/docker/Dockerfile.portal
+    container_name: ap2p-portal-1
+    environment:
+      PORT: "8080"
+      PORTAL_URL: "http://portal1:8080"
+      DATABASE_PATH: "/app/develop/runtime/env1/portal.db"
+    ports:
+      - "18080:8080"
+    volumes:
+      - ../runtime:/app/develop/runtime
+
+  bridge1:
+    build:
+      context: ../..
+      dockerfile: develop/docker/Dockerfile.bridge
+    container_name: ap2p-bridge-1
+    env_file:
+      - ../runtime/env1/gateway.env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - portal1
+      - lobster1
+    volumes:
+      - ../runtime:/app/develop/runtime
+
+  lobster2:
+    image: ghcr.io/openclaw/openclaw:latest
+    container_name: ap2p-lobster-2
+    env_file:
+      - ../runtime/env2/gateway.env
+    volumes:
+      - ../runtime/env2/lobster-home:/home/node/.openclaw
+      - ../../:/home/node/.openclaw/workspace/skills/agent-p2p
+    ports:
+      - "18791:18789"
+
+  portal2:
+    build:
+      context: ../..
+      dockerfile: develop/docker/Dockerfile.portal
+    container_name: ap2p-portal-2
+    environment:
+      PORT: "8080"
+      PORTAL_URL: "http://portal2:8080"
+      DATABASE_PATH: "/app/develop/runtime/env2/portal.db"
+    ports:
+      - "18081:8080"
+    volumes:
+      - ../runtime:/app/develop/runtime
+
+  bridge2:
+    build:
+      context: ../..
+      dockerfile: develop/docker/Dockerfile.bridge
+    container_name: ap2p-bridge-2
+    env_file:
+      - ../runtime/env2/gateway.env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - portal2
+      - lobster2
+    volumes:
+      - ../runtime:/app/develop/runtime
+
