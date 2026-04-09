@@ -152,15 +152,15 @@ start_stack() {
     python3 "$GEN_SCRIPT" --patch-moonshot-only --count "$count" || true
   fi
   echo "Stack is ready."
-  echo "Portal URLs:"
+  echo ""
+  local ui_proxy_port=18443
+  local portal_public_suffix=ap2p.internal
   for i in $(seq 1 "$count"); do
     local host_port=$((BASE_PORT + i - 1))
-    echo "  - portal${i}: http://127.0.0.1:${host_port}"
-  done
-  if [ "$with_lobster" = "true" ]; then
-    echo "Lobster dashboard/gateway URLs:"
-    for i in $(seq 1 "$count"); do
-      local lobster_port=$((18790 + i - 1))
+    echo "portal${i} (environment ${i})"
+    echo "  http://portal${i}.localhost:${host_port}/"
+    echo "  http://portal${i}.${portal_public_suffix}:${host_port}/  (lobster/bridge → Portal; same as AGENTP2P_PORTAL_PUBLIC_URL)"
+    if [ "$with_lobster" = "true" ]; then
       local env_file="$ROOT_DIR/develop/runtime/env${i}/gateway.env"
       local gateway_operator_token
       gateway_operator_token="$(python3 - <<PY
@@ -174,13 +174,17 @@ for line in text:
 print(val)
 PY
 )"
-      echo "  - lobster${i} dashboard: http://127.0.0.1:${lobster_port}"
       if [ -n "$gateway_operator_token" ]; then
-        echo "    Control UI token: ${gateway_operator_token}"
-        echo "    token url: http://127.0.0.1:${lobster_port}/?token=${gateway_operator_token}"
+        echo "  http://lobster${i}.localhost:${ui_proxy_port}/?token=${gateway_operator_token}"
+      else
+        echo "  http://lobster${i}.localhost:${ui_proxy_port}/  (set OPENCLAW_GATEWAY_TOKEN in gateway.env)"
       fi
-    done
-  fi
+    fi
+    echo ""
+  done
+  echo "Portal between Docker containers: use the *.${portal_public_suffix} line under each environment above (matches AGENTP2P_PORTAL_PUBLIC_URL in gateway.env)."
+  echo "  Node/OpenClaw inside a container resolves *.localhost to that container's 127.0.0.1 (ignores extra_hosts), so use *.${portal_public_suffix} there only."
+  echo "On the host, *.${portal_public_suffix} is not in your Mac /etc/hosts by default — open Portal in the browser via portalN.localhost (above) or http://localhost:<port>/."
 }
 
 case "${1:-}" in

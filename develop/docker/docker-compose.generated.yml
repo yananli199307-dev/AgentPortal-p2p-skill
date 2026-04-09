@@ -11,6 +11,10 @@ services:
       - ../../:/home/node/.openclaw/workspace/skills/agent-p2p
     ports:
       - "18790:18789"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+      - "portal1.ap2p.internal:host-gateway"
+      - "portal2.ap2p.internal:host-gateway"
 
   portal1:
     build:
@@ -35,6 +39,8 @@ services:
       - ../runtime/env1/gateway.env
     extra_hosts:
       - "host.docker.internal:host-gateway"
+      - "portal1.ap2p.internal:host-gateway"
+      - "portal2.ap2p.internal:host-gateway"
     depends_on:
       - portal1
       - lobster1
@@ -51,6 +57,10 @@ services:
       - ../../:/home/node/.openclaw/workspace/skills/agent-p2p
     ports:
       - "18791:18789"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+      - "portal1.ap2p.internal:host-gateway"
+      - "portal2.ap2p.internal:host-gateway"
 
   portal2:
     build:
@@ -75,9 +85,21 @@ services:
       - ../runtime/env2/gateway.env
     extra_hosts:
       - "host.docker.internal:host-gateway"
+      - "portal1.ap2p.internal:host-gateway"
+      - "portal2.ap2p.internal:host-gateway"
     depends_on:
       - portal2
       - lobster2
     volumes:
       - ../runtime:/app/develop/runtime
+  openclaw-ui-proxy:
+    image: caddy:2-alpine
+    container_name: ap2p-openclaw-ui-proxy
+    ports:
+      - "18443:8443"
+    volumes:
+      - ./Caddyfile.openclaw-ui.generated:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - lobster1
+      - lobster2
 
