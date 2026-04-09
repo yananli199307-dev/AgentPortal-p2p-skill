@@ -91,12 +91,12 @@ def print_progress(current: int, total: int, prefix: str = "Progress"):
         print()
 
 
-def initiate_transfer(api_key: str, hub_url: str, filename: str,
-                     file_size: int, file_md5: str, chunks_total: int, to_portal: str) -> str:
+def initiate_transfer(api_key: str, to_portal: str, filename: str,
+                     file_size: int, file_md5: str, chunks_total: int) -> str:
     """初始化文件传输（简化版：直接返回file_id，无需确认）"""
     try:
         resp = requests.post(
-            f"{hub_url}/api/file/initiate",
+            f"{to_portal}/api/file/initiate",
             json={
                 "api_key": api_key,
                 "filename": filename,
@@ -120,16 +120,16 @@ def initiate_transfer(api_key: str, hub_url: str, filename: str,
         return None
 
 
-def upload_chunk(api_key: str, hub_url: str, file_id: str, chunk_index: int, 
+def upload_chunk(api_key: str, to_portal: str, file_id: str, chunk_index: int,
                 chunk_data: bytes, max_retries: int = MAX_RETRIES) -> bool:
     """上传单个分片"""
     chunk_md5 = calculate_chunk_md5(chunk_data)
     chunk_base64 = base64.b64encode(chunk_data).decode('utf-8')
-    
+
     for attempt in range(max_retries):
         try:
             resp = requests.post(
-                f"{hub_url}/api/file/chunk/{file_id}/{chunk_index}",
+                f"{to_portal}/api/file/chunk/{file_id}/{chunk_index}",
                 json={
                     "api_key": api_key,
                     "file_id": file_id,
@@ -188,25 +188,25 @@ def upload_file(file_path: str, to_contact: int):
         print(f"❌ 联系人没有 portal_url")
         return False
     
-    # 初始化传输
-    file_id = initiate_transfer(api_key, hub_url, file_path.name,
-                               file_size, file_md5, chunks_total, to_portal)
+    # 初始化传输（发送到接收方 Portal）
+    file_id = initiate_transfer(api_key, to_portal, file_path.name,
+                               file_size, file_md5, chunks_total)
     if not file_id:
         return False
-    
+
     print(f"   文件ID: {file_id}")
     print(f"\n📤 开始上传...")
-    
-    # 上传分片
+
+    # 上传分片（上传到接收方 Portal）
     success_count = 0
     with open(file_path, "rb") as f:
         for chunk_index in range(chunks_total):
             f.seek(chunk_index * CHUNK_SIZE)
             chunk_data = f.read(CHUNK_SIZE)
-            
+
             print_progress(chunk_index + 1, chunks_total, "上传进度")
-            
-            if upload_chunk(api_key, hub_url, file_id, chunk_index, chunk_data):
+
+            if upload_chunk(api_key, to_portal, file_id, chunk_index, chunk_data):
                 success_count += 1
             else:
                 print(f"\n❌ 分片 {chunk_index} 上传失败")
