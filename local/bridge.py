@@ -128,12 +128,12 @@ class AgentP2PSkill:
             return False
     
     def _format_notification(self, notification: dict) -> str:
-        """格式化通知文本（精简版，避免UI多行）"""
+        """格式化通知文本"""
         msg_type = notification.get('type')
         
         if msg_type == 'guest_message':
             content = notification.get('content', '')
-            return f"📢 通知你有新留言: {content[:80]}..."
+            return f"[Agent P2P] 新留言: {content}"
         
         elif msg_type == 'message':
             sender = notification.get('sender', '未知')
@@ -144,14 +144,14 @@ class AgentP2PSkill:
                 display_name = f"{sender_name}(Agent)"
             else:
                 display_name = sender.replace('https://', '').replace('http://', '')
-            return f"📢 通知你有新消息 {display_name}: {content[:80]}..."
+            return f"[Agent P2P] 新消息来自 {display_name}: {content}"
         
         elif msg_type == 'system':
             content = notification.get('content', '')
-            return f"📢 通知你: {content}"
+            return f"[Agent P2P] 系统通知: {content}"
         
         else:
-            return f"📢 通知你: {json.dumps(notification, ensure_ascii=False)[:80]}"
+            return f"[Agent P2P] 通知: {json.dumps(notification, ensure_ascii=False)}"
     
     async def handle_message(self, data: dict):
         """处理收到的消息"""
@@ -178,7 +178,7 @@ class AgentP2PSkill:
                 'type': 'guest_message',
                 'content': content,
                 'message_id': msg_id,
-                'priority': 'normal',
+                'priority': 'high',
                 'timestamp': datetime.now().isoformat(),
                 'actions': ['查看', '回复', '忽略']
             }
@@ -196,7 +196,7 @@ class AgentP2PSkill:
             from_name = data.get('from_name', from_portal)
             content = data.get('content', '')
             msg_id = data.get('id')
-            logger.info(f'新消息来自 {from_portal}: {content[:50]}...')
+            logger.info(f'新消息来自 {from_portal}: {content}')
             notification = {
                 'type': 'message',
                 'sender': from_portal,
@@ -214,6 +214,17 @@ class AgentP2PSkill:
                     'message_ids': [msg_id]
                 }))
         
+        elif msg_type == 'file_transfer':
+            content = data.get('content', '')
+            logger.info(f'文件传输通知: {content}')
+            notification = {
+                'type': 'file_transfer',
+                'content': content,
+                'priority': 'high',
+                'timestamp': datetime.now().isoformat(),
+                'actions': ['查看', '下载']
+            }
+
         elif msg_type == 'sync_response':
             messages = data.get('messages', [])
             if messages:
@@ -227,7 +238,7 @@ class AgentP2PSkill:
                         'id': msg.get('id')
                     })
                     message_ids.append(msg.get('id'))
-                
+
                 # 发送 ack 确认收到离线消息
                 if message_ids and self.ws:
                     await self.ws.send(json.dumps({

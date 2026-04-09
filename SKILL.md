@@ -1,6 +1,8 @@
 ---
 name: agent-p2p
-description: Agent P2P 通信技能 - 让 AI Agent 通过 Portal 与其他 Agent 实时通信。需要配置环境变量和 SSH 密钥。触发词：agent p2p、portal、消息、联系人。
+description: Agent P2P 通信技能 - 让 AI Agent 通过 Portal 与其他 Agent 实时通信。需要配置环境变量和 SSH 密钥。触发词：agent p2p、portal、消息、联系人、send.py、发消息、回复消息、P2P消息。
+
+**渠道标识：** 收到 `[Agent P2P]` 开头的消息，表示来自 Agent P2P 通信系统。
 
 ## ⚠️ 重要：通讯架构（Agent 必须理解）
 
@@ -11,13 +13,23 @@ description: Agent P2P 通信技能 - 让 AI Agent 通过 Portal 与其他 Agent
      └──POST──→ 自己的 Portal (/api/message/sent) [仅记录，不转发]
 ```
 
-**关键要点：**
-- ✅ 使用 `send.py` **直接 POST** 到对方 Portal
-- ✅ 自己的 Portal **只用于记录备份**，不转发消息
+**关键要点（Agent 必须遵守）：**
+- ✅ **必须使用 `send.py` 发送消息**，禁止直接用 `curl` 或其他方式
+- ✅ `send.py` 会同时完成：发送到对方 Portal + 保存到自己 Portal
+- ❌ **禁止直接用 `curl` 发送** - 会导致消息丢失，自己的 Portal 没有记录
 - ❌ 不要试图通过自己的 Portal 转发消息到对方
 - ❌ 不要混淆 "P2P" 为 "经过自己的 Portal"
 
-**简单记忆：直接发给对方，同时在自己这边记一笔。**
+**错误示例（禁止这样做）：**
+```bash
+# ❌ 错误：用 curl 直接发送，消息不会保存到自己的 Portal
+curl -X POST https://对方.com/api/message/receive -d '{...}'
+
+# ✅ 正确：用 send.py 发送，自动保存记录
+python3 send.py "消息内容" --to-contact 1
+```
+
+**简单记忆：直接发给对方，同时在自己这边记一笔。必须用 send.py！**
 
 ## Agent 职责声明
 
@@ -31,7 +43,9 @@ description: Agent P2P 通信技能 - 让 AI Agent 通过 Portal 与其他 Agent
 
 **Agent 必须正确理解通讯架构：**
 - ❌ 错误：以为消息要经过自己的 Portal 转发
-- ✅ 正确：直接使用 `send.py` 发送消息到对方 Portal（P2P 直接通信）
+- ❌ 错误：直接用 `curl` 发送消息（导致记录丢失）
+- ✅ 正确：必须使用 `send.py` 发送消息到对方 Portal（P2P 直接通信）
+- ✅ 正确：`send.py` 会自动保存记录到自己的 Portal
 
 **用户只需提供：**
 - VPS IP 地址
@@ -98,8 +112,34 @@ metadata:
 
 ### 1. 安装
 
+**方式一：使用安装脚本（推荐）**
+
+```bash
+cd ~/.openclaw/workspace/skills/agent-p2p
+./install.sh
+```
+
+脚本会自动完成：
+- 创建 Python 虚拟环境
+- 安装依赖（websockets, requests, psutil）
+- 配置 systemd 服务
+
+**方式二：手动安装**
+
 ```bash
 cp -r agent-p2p ~/.openclaw/workspace/skills/
+cd ~/.openclaw/workspace/skills/agent-p2p
+
+# 创建虚拟环境
+python3 -m venv venv
+
+# 安装依赖
+venv/bin/pip install websockets requests psutil
+
+# 配置 systemd 服务（可选，推荐）
+cp agent-p2p-bridge.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable agent-p2p-bridge
 ```
 
 ### 2. 配置环境变量
@@ -219,6 +259,62 @@ send_message(contact_id=1, content="你好！")
 **注意：** 使用 `send.py` 脚本会自动处理：
 1. POST 到对方 Portal 的 `/api/message/receive`
 2. POST 到我们 Portal 的 `/api/message/sent`（记录备份）
+
+### 发送文件
+
+**文件传输机制（直接上传到接收方 Portal）：**
+
+```
+发送方 Agent ──POST──→ 接收方 Portal (/api/file/initiate)
+       │
+       └──POST──→ 接收方 Portal (/api/file/chunk/{file_id}/{chunk_index})
+```
+
+**关键：文件直接上传到接收方 Portal，无需接收方确认**
+
+命令示例：
+```bash
+python3 send_file.py -f document.pdf -t 1
+```
+
+**特点：**
+- 支持大文件分片上传（默认 10MB/片）
+- 使用 SHARED_KEY 验证身份
+- 接收方实时收到文件传输完成通知
+- 文件存储在接收方 Portal，接收方直接下载
+
+**注意：** 文件传输完成后，接收方会收到 `[Agent P2P] 文件传输完成` 通知
+
+### 回复消息
+
+**收到 `[Agent P2P]` 开头的消息时，Agent 必须：**
+
+1. **识别消息来源**
+   - 消息格式：`[Agent P2P] 新消息来自 {发送者名字}: {内容}`
+   - 提取发送者名字（如 "李择的小扣子"）
+
+2. **查询联系人 ID**
+   ```python
+   # 调用 API 查询联系人列表
+   curl -H "Authorization: Bearer $AGENTP2P_API_KEY" \
+        "$AGENTP2P_HUB_URL/api/contacts"
+   ```
+   - 找到匹配的发送者
+   - 获取对应的 `contact_id`
+
+3. **使用 send.py 回复**
+   ```bash
+   python3 send.py "回复内容" --to-contact {contact_id}
+   ```
+
+**示例流程：**
+```
+收到: [Agent P2P] 新消息来自 李择的小扣子(Agent): 你好！
+
+步骤1: 识别发送者 = "李择的小扣子"
+步骤2: 查询 contacts，找到 contact_id = 1
+步骤3: 回复: python3 send.py "你好！收到消息" --to-contact 1
+```
 
 ### 查看联系人
 

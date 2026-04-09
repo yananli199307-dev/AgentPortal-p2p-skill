@@ -250,9 +250,12 @@ PORTAL_MODE = _load_portal_mode()
 async def notify_openclaw(content: str, message_type: str = "guest_message"):
     """发送通知到 OpenClaw
     
-    当前实现：记录到待通知队列，由 Agent 通过心跳检查拉取
+    1. 记录到待通知队列（用于离线消息）
+    2. 通过 WebSocket 实时通知在线的 Agent
     """
     try:
+        my_portal = get_my_portal_url()
+        
         conn = sqlite3.connect(DATABASE_PATH)
         cursor = conn.cursor()
         
@@ -271,11 +274,23 @@ async def notify_openclaw(content: str, message_type: str = "guest_message"):
         cursor.execute('''
             INSERT INTO pending_notifications (type, content, portal)
             VALUES (?, ?, ?)
-        ''', (message_type, content, get_my_portal_url()))
+        ''', (message_type, content, my_portal))
         
         conn.commit()
         conn.close()
         print(f"[OpenClaw Notify] Queued: {content[:50]}...")
+        
+        # 通过 WebSocket 实时通知
+        try:
+            await manager.send_message(my_portal, {
+                "type": message_type,
+                "content": content,
+                "timestamp": get_now().isoformat()
+            })
+            print(f"[OpenClaw Notify] Real-time notification sent to {my_portal}")
+        except Exception as e:
+            print(f"[OpenClaw Notify] Real-time notification failed (Agent may be offline): {e}")
+            
     except Exception as e:
         print(f"[OpenClaw Notify] Failed: {e}")
 
@@ -298,14 +313,14 @@ async def leave_message(request: GuestMessageRequest, request_obj: Request):
     await manager.broadcast({
         "type": "new_guest_message",
         "message_id": message_id,
-        "content": request.content[:100],
+        "content": request.content,
         "created_at": get_now().isoformat(),
         "requires_approval": True  # 标记需要主人审批
     })
     
     # 发送 OpenClaw 通知（提示主人需要审批）
     await notify_openclaw(
-        f"📨 收到新留言（等待审批）:\n{request.content[:200]}\n\n"
+        f"📨 收到新留言（等待审批）:\n{request.content}\n\n"
         f"回复以下指令处理:\n"
         f"- 同意添加: 同意 {message_id}\n"
         f"- 拒绝添加: 拒绝 {message_id}\n"
@@ -1261,6 +1276,458 @@ async def record_sent_message(request: SentMessageRequest, background_tasks: Bac
     except Exception as e:
         print(f"记录发送消息失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
+
+
+# ========== 文件传输 API ==========
+
+class FileInitiateRequest(BaseModel):
+    api_key: str
+    filename: str
+    size: int
+    md5: str
+    chunk_size: int = 10485760  # 默认10MB
+    chunks_total: int
+    to_portal: str  # 接收方 Portal URL
+
+class FileChunkRequest(BaseModel):
+    api_key: str
+    file_id: str
+    chunk_index: int
+    chunk_md5: str
+    data: str  # base64编码的分片数据
+
+class FileConfirmRequest(BaseModel):
+    api_key: str
+    file_id: str
+    accept: bool  # True接受, False拒绝
+
+@app.post("/api/file/initiate")
+async def initiate_file_transfer(request: FileInitiateRequest, background_tasks: BackgroundTasks):
+    """初始化文件传输（简化版：无需确认，直接上传）"""
+    conn = None
+    try:
+        # 验证API Key（必须是联系人）
+        from_portal = verify_api_key(request.api_key)
+        if not from_portal:
+            raise HTTPException(status_code=401, detail="Invalid API Key")
+        
+        # 生成file_id
+        file_id = secrets.token_urlsafe(32)
+        
+        conn = sqlite3.connect(DATABASE_PATH)
+        cursor = conn.cursor()
+        
+        # 获取我的Portal URL
+        my_portal = get_my_portal_url()
+        
+        # 插入传输记录（直接设置为 transferring，无需确认）
+        cursor.execute('''
+            INSERT INTO file_transfers 
+            (file_id, filename, size, md5, chunk_size, chunks_total, 
+             from_portal, to_portal, status, receiver_confirmed, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'transferring', TRUE, ?)
+        ''', (file_id, request.filename, request.size, request.md5, 
+              request.chunk_size, request.chunks_total,
+              from_portal, request.to_portal, get_now().strftime('%Y-%m-%d %H:%M:%S')))
+        
+        conn.commit()
+        
+        return {
+            "status": "ready",
+            "file_id": file_id,
+            "message": "可以开始上传文件分片"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"初始化文件传输失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
+
+@app.post("/api/file/confirm")
+async def confirm_file_transfer(request: FileConfirmRequest):
+    """接收方确认/拒绝文件传输"""
+    conn = None
+    try:
+        # 验证API Key
+        to_portal = verify_api_key(request.api_key)
+        if not to_portal:
+            raise HTTPException(status_code=401, detail="Invalid API Key")
+        
+        conn = sqlite3.connect(DATABASE_PATH)
+        cursor = conn.cursor()
+        
+        # 查询传输记录
+        cursor.execute('''
+            SELECT from_portal, to_portal, status FROM file_transfers 
+            WHERE file_id = ?
+        ''', (request.file_id,))
+        result = cursor.fetchone()
+        
+        if not result:
+            raise HTTPException(status_code=404, detail="File transfer not found")
+        
+        from_portal, to_portal_db, status = result
+        
+        # 验证权限（只有接收方可以确认）
+        if to_portal != to_portal_db:
+            raise HTTPException(status_code=403, detail="Not authorized")
+        
+        if status != 'pending':
+            raise HTTPException(status_code=400, detail=f"Transfer already {status}")
+        
+        if request.accept:
+            # 接受传输
+            cursor.execute('''
+                UPDATE file_transfers 
+                SET receiver_confirmed = TRUE, confirmed_at = ?, status = 'transferring'
+                WHERE file_id = ?
+            ''', (get_now().strftime('%Y-%m-%d %H:%M:%S'), request.file_id))
+            conn.commit()
+            
+            # 通知发送方可以开始传输
+            notify_file_confirmed(request.file_id, from_portal, True)
+            
+            return {"status": "confirmed", "message": "可以开始传输文件"}
+        else:
+            # 拒绝传输
+            cursor.execute('''
+                UPDATE file_transfers 
+                SET status = 'rejected', should_cleanup = TRUE, cleanup_after = datetime('now', '+1 day')
+                WHERE file_id = ?
+            ''', (request.file_id,))
+            conn.commit()
+            
+            # 通知发送方被拒绝
+            notify_file_confirmed(request.file_id, from_portal, False)
+            
+            return {"status": "rejected", "message": "已拒绝接收文件"}
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"确认文件传输失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
+
+@app.post("/api/file/chunk/{file_id}/{chunk_index}")
+async def upload_file_chunk(file_id: str, chunk_index: int, request: FileChunkRequest, background_tasks: BackgroundTasks):
+    """上传文件分片"""
+    conn = None
+    try:
+        # 验证API Key
+        from_portal = verify_api_key(request.api_key)
+        if not from_portal:
+            raise HTTPException(status_code=401, detail="Invalid API Key")
+        
+        conn = sqlite3.connect(DATABASE_PATH)
+        cursor = conn.cursor()
+        
+        # 查询传输记录
+        cursor.execute('''
+            SELECT from_portal, to_portal, status, chunks_total, chunks_received 
+            FROM file_transfers WHERE file_id = ?
+        ''', (file_id,))
+        result = cursor.fetchone()
+        
+        if not result:
+            raise HTTPException(status_code=404, detail="File transfer not found")
+        
+        from_portal_db, to_portal, status, chunks_total, chunks_received = result
+        
+        # 验证权限（只有发送方可以上传）
+        if from_portal != from_portal_db:
+            raise HTTPException(status_code=403, detail="Not authorized")
+        
+        if status != 'transferring':
+            raise HTTPException(status_code=400, detail=f"Transfer status is {status}, not transferring")
+        
+        # 验证分片索引
+        if chunk_index < 0 or chunk_index >= chunks_total:
+            raise HTTPException(status_code=400, detail="Invalid chunk index")
+        
+        # 检查分片是否已存在
+        cursor.execute('SELECT id FROM file_chunks WHERE file_id = ? AND chunk_index = ?',
+                      (file_id, chunk_index))
+        if cursor.fetchone():
+            return {"status": "exists", "message": "Chunk already received"}
+        
+        # 解码base64数据
+        import base64
+        try:
+            chunk_data = base64.b64decode(request.data)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid base64 data")
+        
+        # 验证分片MD5
+        chunk_md5_calc = hashlib.md5(chunk_data).hexdigest()
+        if chunk_md5_calc != request.chunk_md5:
+            raise HTTPException(status_code=400, detail="Chunk MD5 mismatch")
+        
+        # 存储分片
+        cursor.execute('''
+            INSERT INTO file_chunks (file_id, chunk_index, chunk_size, chunk_md5, data)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (file_id, chunk_index, len(chunk_data), request.chunk_md5, chunk_data))
+        
+        conn.commit()
+        
+        # 检查是否所有分片都已接收
+        cursor.execute('SELECT COUNT(*) FROM file_chunks WHERE file_id = ?', (file_id,))
+        received_count = cursor.fetchone()[0]
+        
+        if received_count >= chunks_total:
+            # 所有分片接收完成，验证完整文件MD5
+            background_tasks.add_task(verify_and_complete_transfer, file_id)
+        
+        return {
+            "status": "received",
+            "chunk_index": chunk_index,
+            "chunks_received": received_count,
+            "chunks_total": chunks_total
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"上传分片失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
+
+@app.get("/api/file/status/{file_id}")
+async def get_file_transfer_status(file_id: str, api_key: str):
+    """查询文件传输状态"""
+    conn = None
+    try:
+        # 验证API Key
+        portal = verify_api_key(api_key)
+        if not portal:
+            raise HTTPException(status_code=401, detail="Invalid API Key")
+        
+        conn = sqlite3.connect(DATABASE_PATH)
+        cursor = conn.cursor()
+        
+        # 查询传输记录
+        cursor.execute('''
+            SELECT file_id, filename, size, status, chunks_total, chunks_received,
+                   from_portal, to_portal, receiver_confirmed, created_at
+            FROM file_transfers WHERE file_id = ?
+        ''', (file_id,))
+        result = cursor.fetchone()
+        
+        if not result:
+            raise HTTPException(status_code=404, detail="File transfer not found")
+        
+        # 验证权限（只有发送方或接收方可以查询）
+        if portal != result[6] and portal != result[7]:
+            raise HTTPException(status_code=403, detail="Not authorized")
+        
+        # 查询已接收的分片索引
+        cursor.execute('SELECT chunk_index FROM file_chunks WHERE file_id = ?', (file_id,))
+        received_chunks = [row[0] for row in cursor.fetchall()]
+        
+        return {
+            "file_id": result[0],
+            "filename": result[1],
+            "size": result[2],
+            "status": result[3],
+            "chunks_total": result[4],
+            "chunks_received": result[5],
+            "received_chunks": received_chunks,
+            "from_portal": result[6],
+            "to_portal": result[7],
+            "receiver_confirmed": result[8],
+            "created_at": result[9]
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"查询传输状态失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
+
+@app.get("/api/file/download/{file_id}")
+async def download_file(file_id: str, api_key: str):
+    """下载完整文件（所有分片合并）"""
+    conn = None
+    try:
+        # 验证API Key
+        portal = verify_api_key(api_key)
+        if not portal:
+            raise HTTPException(status_code=401, detail="Invalid API Key")
+        
+        conn = sqlite3.connect(DATABASE_PATH)
+        cursor = conn.cursor()
+        
+        # 查询传输记录
+        cursor.execute('''
+            SELECT filename, size, md5, status, to_portal, chunks_total
+            FROM file_transfers WHERE file_id = ?
+        ''', (file_id,))
+        result = cursor.fetchone()
+        
+        if not result:
+            raise HTTPException(status_code=404, detail="File transfer not found")
+        
+        filename, size, md5, status, to_portal, chunks_total = result
+        
+        # 验证权限（只有接收方可以下载）
+        if portal != to_portal:
+            raise HTTPException(status_code=403, detail="Not authorized")
+        
+        if status != 'completed':
+            raise HTTPException(status_code=400, detail=f"File not ready, status: {status}")
+        
+        # 查询所有分片
+        cursor.execute('''
+            SELECT data FROM file_chunks 
+            WHERE file_id = ? ORDER BY chunk_index ASC
+        ''', (file_id,))
+        chunks = cursor.fetchall()
+        
+        if len(chunks) != chunks_total:
+            raise HTTPException(status_code=500, detail="Chunk count mismatch")
+        
+        # 合并分片
+        import io
+        file_buffer = io.BytesIO()
+        for chunk in chunks:
+            file_buffer.write(chunk[0])
+        
+        file_data = file_buffer.getvalue()
+        
+        # 验证完整文件MD5
+        file_md5_calc = hashlib.md5(file_data).hexdigest()
+        if file_md5_calc != md5:
+            raise HTTPException(status_code=500, detail="File MD5 mismatch")
+        
+        from fastapi.responses import StreamingResponse
+        file_buffer.seek(0)
+        
+        return StreamingResponse(
+            file_buffer,
+            media_type="application/octet-stream",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"下载文件失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
+
+# 辅助函数
+async def notify_new_file(to_portal: str, from_portal: str, filename: str, file_id: str):
+    """通知接收方有新文件"""
+    try:
+        await notify_openclaw(
+            f"[Agent P2P] 新文件传输请求\n"
+            f"来自: {from_portal}\n"
+            f"文件名: {filename}\n"
+            f"文件ID: {file_id}\n\n"
+            f"回复指令:\n"
+            f"- 接受: python3 send_file.py --confirm {file_id} --accept\n"
+            f"- 拒绝: python3 send_file.py --confirm {file_id} --reject",
+            "file_transfer"
+        )
+    except Exception as e:
+        print(f"通知新文件失败: {e}")
+
+async def notify_file_confirmed(file_id: str, to_portal: str, accepted: bool):
+    """通知发送方接收方已确认"""
+    try:
+        if accepted:
+            await notify_openclaw(
+                f"[Agent P2P] 文件传输已确认\n"
+                f"文件ID: {file_id}\n"
+                f"接收方已接受，可以开始传输分片",
+                "file_transfer"
+            )
+        else:
+            await notify_openclaw(
+                f"[Agent P2P] 文件传输被拒绝\n"
+                f"文件ID: {file_id}\n"
+                f"接收方拒绝了文件传输",
+                "file_transfer"
+            )
+    except Exception as e:
+        print(f"通知确认结果失败: {e}")
+
+async def verify_and_complete_transfer(file_id: str):
+    """验证并完成传输（后台任务）"""
+    conn = None
+    try:
+        conn = sqlite3.connect(DATABASE_PATH)
+        cursor = conn.cursor()
+        
+        # 查询所有分片
+        cursor.execute('''
+            SELECT data FROM file_chunks 
+            WHERE file_id = ? ORDER BY chunk_index ASC
+        ''', (file_id,))
+        chunks = cursor.fetchall()
+        
+        # 查询文件信息
+        cursor.execute('SELECT md5, chunks_total FROM file_transfers WHERE file_id = ?', (file_id,))
+        result = cursor.fetchone()
+        if not result:
+            return
+        
+        expected_md5, chunks_total = result
+        
+        if len(chunks) != chunks_total:
+            print(f"分片数量不匹配: {len(chunks)} != {chunks_total}")
+            return
+        
+        # 合并并验证MD5
+        import io
+        file_buffer = io.BytesIO()
+        for chunk in chunks:
+            file_buffer.write(chunk[0])
+        
+        file_md5 = hashlib.md5(file_buffer.getvalue()).hexdigest()
+        
+        if file_md5 == expected_md5:
+            # MD5验证通过，标记完成
+            cursor.execute('''
+                UPDATE file_transfers 
+                SET status = 'completed', completed_at = ?
+                WHERE file_id = ?
+            ''', (get_now().strftime('%Y-%m-%d %H:%M:%S'), file_id))
+            conn.commit()
+            
+            # 通知接收方文件已准备好
+            await notify_openclaw(
+                f"[Agent P2P] 文件传输完成\n"
+                f"文件ID: {file_id}\n"
+                f"文件已准备好下载",
+                "file_transfer"
+            )
+        else:
+            print(f"文件MD5验证失败: {file_id}")
+            cursor.execute('''
+                UPDATE file_transfers SET status = 'failed' WHERE file_id = ?
+            ''', (file_id,))
+            conn.commit()
+            
+    except Exception as e:
+        print(f"验证传输失败: {e}")
     finally:
         if conn:
             conn.close()

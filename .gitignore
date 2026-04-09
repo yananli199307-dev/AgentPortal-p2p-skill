@@ -40,3 +40,5 @@ develop/runtime/**
 
 # develop 本地密钥（从 .env.example 复制）
 develop/.env
+# 运行时状态文件
+skill_status.json
