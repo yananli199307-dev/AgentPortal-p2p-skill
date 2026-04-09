@@ -181,8 +181,9 @@ def send_file(api_key, hub_url, contact_id, file_path):
                 "api_key": shared_key,
                 "from_portal": hub_url,
                 "filename": filename,
-                "file_size": file_size,
-                "file_md5": file_md5,
+                "size": file_size,
+                "md5": file_md5,
+                "chunk_size": CHUNK_SIZE,
                 "chunks_total": chunks_total
             },
             verify=False,
