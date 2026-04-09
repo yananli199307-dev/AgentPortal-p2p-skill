@@ -91,8 +91,8 @@ def print_progress(current: int, total: int, prefix: str = "Progress"):
         print()
 
 
-def initiate_transfer(api_key: str, hub_url: str, filename: str, 
-                     file_size: int, file_md5: str, chunks_total: int) -> str:
+def initiate_transfer(api_key: str, hub_url: str, filename: str,
+                     file_size: int, file_md5: str, chunks_total: int, to_portal: str) -> str:
     """初始化文件传输（简化版：直接返回file_id，无需确认）"""
     try:
         resp = requests.post(
@@ -102,6 +102,7 @@ def initiate_transfer(api_key: str, hub_url: str, filename: str,
                 "filename": filename,
                 "size": file_size,
                 "md5": file_md5,
+                "to_portal": to_portal,
                 "chunks_total": chunks_total
             },
             timeout=30
@@ -181,9 +182,15 @@ def upload_file(file_path: str, to_contact: int):
     print(f"   大小: {format_size(file_size)}")
     print(f"   分片: {chunks_total} 个")
     
+    # 获取接收方 Portal URL
+    to_portal = contact.get("portal_url")
+    if not to_portal:
+        print(f"❌ 联系人没有 portal_url")
+        return False
+    
     # 初始化传输
-    file_id = initiate_transfer(api_key, hub_url, file_path.name, 
-                               file_size, file_md5, chunks_total)
+    file_id = initiate_transfer(api_key, hub_url, file_path.name,
+                               file_size, file_md5, chunks_total, to_portal)
     if not file_id:
         return False
     
