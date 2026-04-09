@@ -1268,7 +1268,7 @@ async def initiate_file_transfer(request: FileInitiateRequest, background_tasks:
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'transferring', TRUE, ?)
         ''', (file_id, request.filename, request.size, request.md5, 
               request.chunk_size, request.chunks_total,
-              from_portal, my_portal, get_now().strftime('%Y-%m-%d %H:%M:%S')))
+              from_portal, request.to_portal, get_now().strftime('%Y-%m-%d %H:%M:%S')))
         
         conn.commit()
         
