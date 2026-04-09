@@ -54,7 +54,11 @@ def get_contact(api_key, hub_url, contact_id):
 
 
 def send_message(api_key, hub_url, contact_id, content):
-    """发送消息"""
+    """发送消息
+    
+    1. POST 到对方 Portal (/api/message/receive)
+    2. POST 到自己的 Portal (/api/message/sent) [记录备份]
+    """
     contact = get_contact(api_key, hub_url, contact_id)
     if not contact:
         print(f"❌ 联系人 {contact_id} 不存在")
@@ -67,6 +71,7 @@ def send_message(api_key, hub_url, contact_id, content):
         print("❌ 联系人信息不完整")
         return False
     
+    # 1. 发送到对方 Portal
     resp = requests.post(
         f"{to_portal}/api/message/receive",
         json={
@@ -78,12 +83,34 @@ def send_message(api_key, hub_url, contact_id, content):
         verify=False
     )
     
-    if resp.status_code == 200:
-        print(f"✅ 消息已发送: {resp.json().get('message_id')}")
-        return True
-    else:
-        print(f"❌ 发送失败: {resp.status_code}")
+    if resp.status_code != 200:
+        print(f"❌ 发送到对方 Portal 失败: {resp.status_code}")
         return False
+    
+    message_id = resp.json().get('message_id')
+    print(f"✅ 已发送到对方 Portal (message_id: {message_id})")
+    
+    # 2. 记录到自己的 Portal (备份)
+    try:
+        resp_backup = requests.post(
+            f"{hub_url}/api/message/sent",
+            json={
+                "to_portal": to_portal,
+                "content": content,
+                "message_type": "text",
+                "original_id": message_id
+            },
+            headers={"Authorization": f"Bearer {api_key}"},
+            verify=False
+        )
+        if resp_backup.status_code == 200:
+            print(f"✅ 已记录到自己的 Portal")
+        else:
+            print(f"⚠️ 记录到自己的 Portal 失败: {resp_backup.status_code}")
+    except Exception as e:
+        print(f"⚠️ 备份消息失败: {e}")
+    
+    return True
 
 
 def send_file(api_key, hub_url, contact_id, file_path):
