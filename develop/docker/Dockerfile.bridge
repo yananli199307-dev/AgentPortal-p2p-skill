@@ -7,4 +7,4 @@ RUN pip install --no-cache-dir websockets requests \
 
 COPY . /app
 
-CMD ["python", "local/bridge.py"]
+CMD ["python", "develop/local/bridge_dev.py"]

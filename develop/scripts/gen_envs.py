@@ -182,6 +182,7 @@ def merge_lobster_openclaw_config(
     *,
     lobster_model: str,
     env_index: int,
+    hooks_token: str = "",
 ) -> None:
     """
     OpenClaw Control UI checks the browser Origin on WebSocket connect. Docker maps
@@ -189,8 +190,10 @@ def merge_lobster_openclaw_config(
     allowlist only matches :18789, so the UI must allow the URL shown in the address bar.
 
     The dashboard WebSocket uses gateway.auth.token (operator), not hooks.token /
-    OPENCLAW_HOOKS_TOKEN; those must match what we put in gateway.env as
-    OPENCLAW_GATEWAY_TOKEN so printed URLs work.
+    OPENCLAW_HOOKS_TOKEN; OPENCLAW_GATEWAY_TOKEN must match gateway.auth.token so printed URLs work.
+
+    Bridge calls POST /hooks/wake with OPENCLAW_HOOKS_TOKEN; OpenClaw only registers that route when
+    hooks.enabled is true and hooks.token matches (see gateway.env).
 
     For multiple lobsters use http://lobsterN.localhost on the openclaw-ui-proxy port (18443 by default):
     *.localhost stays a secure context in browsers, and distinct hostnames avoid cookie collisions.
@@ -256,6 +259,15 @@ def merge_lobster_openclaw_config(
         model_block = {}
     defaults["model"] = model_block
     model_block["primary"] = primary
+
+    if hooks_token.strip():
+        hooks = data.get("hooks")
+        if not isinstance(hooks, dict):
+            hooks = {}
+        hooks["enabled"] = True
+        hooks["path"] = hooks.get("path") or "/hooks"
+        hooks["token"] = hooks_token.strip()
+        data["hooks"] = hooks
 
     if primary.startswith("moonshot/"):
         gvals = parse_env_file(env_dir / "gateway.env")
@@ -598,7 +610,12 @@ def compose_service_block(
     if with_lobster:
         lobster_host_port = BASE_LOBSTER_HOST_PORT + (index - 1)
         lobster_block = f"""  lobster{index}:
-    image: {lobster_image}
+    build:
+      context: ../..
+      dockerfile: develop/docker/Dockerfile.lobster
+      args:
+        LOBSTER_BASE: "{lobster_image}"
+    image: agentp2p-lobster:dev
     container_name: ap2p-lobster-{index}
     env_file:
       - ../runtime/env{index}/gateway.env
@@ -621,11 +638,15 @@ def compose_service_block(
     environment:
       PORT: "8080"
       PORTAL_URL: "http://portal{index}:8080"
+      PORTAL_URL_ALIASES: "http://portal{index}.{DEV_PORTAL_PUBLIC_SUFFIX}:{host_port},http://portal{index}.localhost:{host_port}"
       DATABASE_PATH: "/app/develop/runtime/env{index}/portal.db"
+      PORTAL_LOG_PATH: "/app/develop/runtime/env{index}/portal.log"
     ports:
       - "{host_port}:8080"
     volumes:
       - ../runtime:/app/develop/runtime
+    extra_hosts:
+{extra_hosts_yaml}
 
   bridge{index}:
     build:
@@ -640,6 +661,7 @@ def compose_service_block(
 {bridge_depends}
     volumes:
       - ../runtime:/app/develop/runtime
+      - ../runtime/env{index}/bridge.log:/app/local/bridge.log
 """
 
 
@@ -683,6 +705,9 @@ def main() -> None:
         lobster_host_port = BASE_LOBSTER_HOST_PORT + (i - 1)
         env_dir = RUNTIME_DIR / f"env{i}"
         env_dir.mkdir(parents=True, exist_ok=True)
+        bridge_log_host = env_dir / "bridge.log"
+        if not bridge_log_host.exists():
+            bridge_log_host.write_text("", encoding="utf-8")
         env_file = env_dir / "gateway.env"
         existing = parse_env_file(env_file)
         env_file.write_text(
@@ -700,6 +725,7 @@ def main() -> None:
                 written_env.get("OPENCLAW_GATEWAY_TOKEN", ""),
                 lobster_model=written_env.get("LOBSTER_MODEL", "kimi"),
                 env_index=i,
+                hooks_token=written_env.get("OPENCLAW_HOOKS_TOKEN", ""),
             )
 
     GENERATED_COMPOSE.write_text(

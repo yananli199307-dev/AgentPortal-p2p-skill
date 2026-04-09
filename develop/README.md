@@ -47,7 +47,7 @@ sudo bash develop/scripts/dev_stack.sh scale --count 3
 sudo bash develop/scripts/dev_stack.sh start --count 2 --with-lobster
 ```
 
-可指定镜像：
+可指定镜像（作为 **`develop/docker/Dockerfile.lobster`** 的构建参数 `LOBSTER_BASE`，镜像会在其上安装 `pip` 与技能用 Python 包）：
 
 ```bash
 sudo bash develop/scripts/dev_stack.sh start --count 2 --with-lobster --lobster-image your/lobster:image
@@ -59,6 +59,7 @@ sudo bash develop/scripts/dev_stack.sh start --count 2 --with-lobster --lobster-
 - `bridgeN` 的 `OPENCLAW_GATEWAY_URL` 自动切到 `http://lobsterN:18789`
 - 运行数据挂载到 `develop/runtime/envN/lobster-home`
 - 本仓库根目录绑定到容器内 `~/.openclaw/workspace/skills/agent-p2p`，OpenClaw 会按 workspace 技能加载 **agent-p2p**，便于本地改 skill 代码后直接调试
+- **Python / pip**：官方 OpenClaw 镜像以 Node 为主，默认没有可用的 `pip`。生成 compose 时会对 lobster 使用 **`Dockerfile.lobster`**：用 **`python3.11`/`python3.12` 建 venv**（避免 `bin/python3` 指向 `/usr/bin/python3` 时再替换 `python3` 产生符号链接死环），并把 **`/usr/bin/python3`** 换成 **`exec` 进 venv 的包装脚本**（原二进制保留为 `python3.distrib`）。预装包见 **`develop/docker/requirements-lobster.txt`**。改依赖后务必 **`docker compose build --no-cache lobsterN`** 再 **`up -d`**。
 - 宿主机访问入口：`http://127.0.0.1:18790`（lobster1）、`http://127.0.0.1:18791`（lobster2）...
 
 并且每个 `develop/runtime/envN/gateway.env` 会包含：
@@ -80,6 +81,16 @@ sudo bash develop/scripts/dev_stack.sh start --count 2 --with-lobster --lobster-
 - 对方 Agent 在 Portal 前台 **留言** 只会写入 **`guest_messages`**，**不会自动出现联系人**；这是设计（见根目录 **`SKILL.md`**「留言审批」）。
 - 要建联：由 **portal2 的主人或龙虾2** 调用 **`POST /api/guest/messages/{message_id}/approve`**，Body 里带上从留言里读到的 **`portal_url`、`agent_name`、`user_name`**（见 `vps/main.py`）。管理后台也可操作。
 - **bridge** 通过 WebSocket 收到留言后会 **`/hooks/wake` 对应环境的龙虾**；若你刚更新了本仓库里的 **`local/bridge.py`**，请 **`docker compose build portalN` / `bridgeN` 并重启**（Portal 与 bridge 镜像会打进当前代码）。
+
+## 与生产隔离的 develop 入口
+
+- **Portal（本 compose 镜像）**：`Dockerfile.portal` 使用 **`python -m uvicorn develop.vps.main_dev:app`**。`main_dev` 会设置 **`AGENTPORTAL_DEV=1`**，从而加载 **`develop/vps/dev_portal_mode.py`**（多容器 URL、WS 键、消息转发等）。**生产/VPS** 请继续用 **`vps.main:app`**，且不要设置 **`AGENTPORTAL_DEV`**；此时使用 **`vps/prod_portal_mode.py`**。
+- **Bridge（本 compose 镜像）**：入口为 **`develop/local/bridge_dev.py`**（内部等价执行 **`local/bridge.py`**）。生产直连 **`python local/bridge.py`** 即可。
+
+## Portal / Bridge 容器日志（宿主机文件）
+
+- **Portal**：uvicorn 输出追加到 **`develop/runtime/envN/portal.log`**（`PORTAL_LOG_PATH` + `Dockerfile.portal` 里 `tee`）。改镜像后需 **`docker compose build portalN`**。
+- **Bridge**：compose 把容器内 **`/app/local/bridge.log`** **绑定**到 **`develop/runtime/envN/bridge.log`**（`gen_envs.py` 会 `touch` 该文件，避免 Docker 误建目录）。本机直接跑 **`python local/bridge.py`** 时仍写仓库 **`local/bridge.log`**。注意 **`RotatingFileHandler`** 轮转出的 **`bridge.log.1`** 等仍在容器镜像层、不会出现在宿主机；开发调试看当前 `bridge.log` 即可。
 
 ## 常用命令
 

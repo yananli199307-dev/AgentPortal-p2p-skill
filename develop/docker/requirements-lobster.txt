@@ -1,0 +1,6 @@
+# Python deps for Agent / skill scripts run inside the lobster (OpenClaw) container.
+# Keep this smaller than repo-root requirements.txt (Portal / deploy tools are not needed here).
+requests>=2.31.0
+urllib3>=2.0.0
+websocket-client>=1.6.0
+websockets>=11.0
