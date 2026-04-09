@@ -182,14 +182,18 @@ def upload_file(file_path: str, to_contact: int):
     print(f"   大小: {format_size(file_size)}")
     print(f"   分片: {chunks_total} 个")
     
-    # 获取接收方 Portal URL
+    # 获取接收方 Portal URL 和 SHARED_KEY
     to_portal = contact.get("portal_url")
+    shared_key = contact.get("SHARED_KEY")
     if not to_portal:
         print(f"❌ 联系人没有 portal_url")
         return False
-    
-    # 初始化传输（发送到接收方 Portal）
-    file_id = initiate_transfer(api_key, to_portal, file_path.name,
+    if not shared_key:
+        print(f"❌ 联系人没有 SHARED_KEY")
+        return False
+
+    # 初始化传输（使用 SHARED_KEY 发送到接收方 Portal）
+    file_id = initiate_transfer(shared_key, to_portal, file_path.name,
                                file_size, file_md5, chunks_total)
     if not file_id:
         return False
@@ -197,7 +201,7 @@ def upload_file(file_path: str, to_contact: int):
     print(f"   文件ID: {file_id}")
     print(f"\n📤 开始上传...")
 
-    # 上传分片（上传到接收方 Portal）
+    # 上传分片（使用 SHARED_KEY 上传到接收方 Portal）
     success_count = 0
     with open(file_path, "rb") as f:
         for chunk_index in range(chunks_total):
@@ -206,7 +210,7 @@ def upload_file(file_path: str, to_contact: int):
 
             print_progress(chunk_index + 1, chunks_total, "上传进度")
 
-            if upload_chunk(api_key, to_portal, file_id, chunk_index, chunk_data):
+            if upload_chunk(shared_key, to_portal, file_id, chunk_index, chunk_data):
                 success_count += 1
             else:
                 print(f"\n❌ 分片 {chunk_index} 上传失败")
