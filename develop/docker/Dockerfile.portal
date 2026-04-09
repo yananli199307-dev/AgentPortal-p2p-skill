@@ -1,0 +1,15 @@
+FROM python:3.12-slim-bookworm
+
+WORKDIR /app
+
+ENV PYTHONUNBUFFERED=1
+
+RUN pip install --no-cache-dir fastapi uvicorn websockets requests pytz \
+    || pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com fastapi uvicorn websockets requests pytz
+
+COPY . /app
+
+EXPOSE 8080
+
+# PORTAL_LOG_PATH: set in compose to e.g. /app/develop/runtime/env1/portal.log (host: develop/runtime/envN/portal.log)
+CMD ["sh", "-c", "LOG=\"${PORTAL_LOG_PATH:-/tmp/portal.log}\"; mkdir -p \"$(dirname \"$LOG\")\" 2>/dev/null; python -m uvicorn develop.vps.main_dev:app --host 0.0.0.0 --port 8080 2>&1 | tee -a \"$LOG\""]

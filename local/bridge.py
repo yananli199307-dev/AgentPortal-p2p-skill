@@ -98,11 +98,11 @@ class AgentP2PSkill:
         try:
             url = f'{self.gateway_url}/hooks/wake'
             
-            # 构建唤醒消息
-            payload = {
-                'text': self._format_notification(notification),
-                'metadata': notification
-            }
+            # OpenClaw /hooks/wake 仅接受 text + 可选 mode
+            text = self._format_notification(notification)
+            if not (text or "").strip():
+                text = json.dumps(notification, ensure_ascii=False)[:2000]
+            payload = {'text': text, 'mode': 'now'}
             
             # 使用 urllib 发送 POST 请求
             req = urllib.request.Request(
@@ -172,8 +172,8 @@ class AgentP2PSkill:
         
         if msg_type == 'new_guest_message':
             content = data.get('content', '')
-            msg_id = data.get('id')
-            logger.info(f'新留言: {content}')
+            msg_id = data.get('message_id') if data.get('message_id') is not None else data.get('id')
+            logger.info(f'新留言 id={msg_id}: {content[:50]}...')
             notification = {
                 'type': 'guest_message',
                 'content': content,
@@ -190,7 +190,8 @@ class AgentP2PSkill:
                     'message_ids': [msg_id]
                 }))
         
-        elif msg_type == 'new_message':
+        elif msg_type in ('new_message', 'message'):
+            # Portal receive 推 new_message；本机 /api/message/send 直推 message
             from_portal = data.get('from', '')
             from_name = data.get('from_name', from_portal)
             content = data.get('content', '')
@@ -207,8 +208,6 @@ class AgentP2PSkill:
                 'actions': ['回复', '查看历史']
             }
             
-            # 发送确认
-            msg_id = data.get('id')
             if msg_id and self.ws:
                 await self.ws.send(json.dumps({
                     'type': 'ack',
@@ -262,13 +261,16 @@ class AgentP2PSkill:
         
         logger.info(f'连接 Portal: {ws_url[:60]}...')
         
-        # 创建 SSL 上下文（跳过验证，仅用于测试）
-        ssl_context = ssl.create_default_context()
-        ssl_context.check_hostname = False
-        ssl_context.verify_mode = ssl.CERT_NONE
+        # wss:// 才传 ssl；ws:// 传 ssl 会报错：ssl argument is incompatible with a ws:// URI
+        connect_kw = {}
+        if ws_url.startswith("wss://"):
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+            connect_kw["ssl"] = ssl_context
         
         try:
-            async with websockets.connect(ws_url, ssl=ssl_context) as websocket:
+            async with websockets.connect(ws_url, **connect_kw) as websocket:
                 self.ws = websocket
                 self.reconnect_delay = 5  # 重置重连延迟
                 logger.info('WebSocket 连接成功')

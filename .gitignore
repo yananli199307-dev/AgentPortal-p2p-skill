@@ -30,5 +30,15 @@ config/portals.json
 Thumbs.db
 *.pid
 
+# 运行日志
+client_status.json
+skill_status.json
+
+# develop runtime（本地联调用）
+develop/runtime/**
+!develop/runtime/.gitkeep
+
+# develop 本地密钥（从 .env.example 复制）
+develop/.env
 # 运行时状态文件
 skill_status.json

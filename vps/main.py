@@ -230,6 +230,21 @@ def get_my_portal_url() -> str:
     """获取当前 Portal 的 URL（从环境变量或配置）"""
     return os.getenv("PORTAL_URL", "")
 
+
+def _load_portal_mode():
+    """生产：vps.prod_portal_mode；develop 栈设置 AGENTPORTAL_DEV=1 后加载 DevPortalMode。"""
+    if os.getenv("AGENTPORTAL_DEV") == "1":
+        from develop.vps.dev_portal_mode import DevPortalMode
+
+        return DevPortalMode()
+    from vps.prod_portal_mode import ProdPortalMode
+
+    return ProdPortalMode()
+
+
+PORTAL_MODE = _load_portal_mode()
+
+
 # API 路由
 
 async def notify_openclaw(content: str, message_type: str = "guest_message"):
@@ -545,31 +560,34 @@ async def get_message_history(
     if not my_portal:
         my_portal = get_my_portal_url()
     
+    thread_where, thread_params = PORTAL_MODE.message_thread_sql(my_portal, contact_portal)
+    
     conn = sqlite3.connect(DATABASE_PATH)
     cursor = conn.cursor()
     
     # 获取总消息数
-    cursor.execute('''
-        SELECT COUNT(*) FROM messages 
-        WHERE (from_portal = ? AND to_portal = ?) 
-           OR (from_portal = ? AND to_portal = ?)
-    ''', (my_portal, contact_portal, contact_portal, my_portal))
+    cursor.execute(
+        f"SELECT COUNT(*) FROM messages WHERE {thread_where}",
+        thread_params,
+    )
     
     total = cursor.fetchone()[0]
     
     # 获取消息列表（按时间倒序）
-    cursor.execute('''
+    cursor.execute(
+        f"""
         SELECT id, from_portal, to_portal, content, message_type, created_at
         FROM messages 
-        WHERE (from_portal = ? AND to_portal = ?) 
-           OR (from_portal = ? AND to_portal = ?)
+        WHERE {thread_where}
         ORDER BY created_at DESC
         LIMIT ? OFFSET ?
-    ''', (my_portal, contact_portal, contact_portal, my_portal, limit, offset))
+        """,
+        [*thread_params, limit, offset],
+    )
     
     messages = []
     for row in cursor.fetchall():
-        msg_type = "sent" if row[1] == my_portal else "received"
+        msg_type = "sent" if PORTAL_MODE.is_sent_row(my_portal, row[1]) else "received"
         messages.append({
             "id": row[0],
             "type": msg_type,
@@ -635,16 +653,29 @@ async def send_message(request: SendMessageRequest, background_tasks: Background
     conn.commit()
     conn.close()
     
-    # 后台推送消息
-    background_tasks.add_task(push_message, to_portal, {
+    payload = {
         "type": "message",
         "id": message_id,
         "from": my_portal,
-        "api_key": SHARED_KEY,  # 让对方可以用此验证我的身份
+        "api_key": SHARED_KEY,
         "content": request.content,
         "message_type": request.message_type,
-        "created_at": get_now().isoformat()
-    })
+        "created_at": get_now().isoformat(),
+    }
+    forward_body = {
+        "api_key": SHARED_KEY,
+        "from_portal": my_portal,
+        "content": request.content,
+        "message_type": request.message_type,
+    }
+    PORTAL_MODE.schedule_send_delivery(
+        background_tasks,
+        push_message,
+        to_portal,
+        my_portal,
+        payload,
+        forward_body,
+    )
     
     return {"status": "delivered", "message_id": message_id}
 
@@ -681,8 +712,8 @@ async def receive_message(request: ReceiveMessageRequest, background_tasks: Back
         # 拼接显示名：主人名的Agent名，如 "李亚楠的小扣子"
         from_name = f"{user_name}的{agent_name}" if user_name and agent_name else agent_name or contact_portal
         
-        # 验证 from_portal 是否匹配
-        if contact_portal != request.from_portal:
+        # 验证 from_portal 是否匹配（develop 模式下允许多种 URL 规范化写法）
+        if not PORTAL_MODE.receive_from_portal_ok(contact_portal, request.from_portal):
             raise HTTPException(status_code=403, detail="Portal URL mismatch")
         
         # 保存消息（我是接收方）
@@ -694,16 +725,20 @@ async def receive_message(request: ReceiveMessageRequest, background_tasks: Back
         message_id = cursor.lastrowid
         conn.commit()
         
-        # 通过 WebSocket 推送给我的 Agent
-        background_tasks.add_task(push_message, my_portal, {
-            "type": "new_message",
-            "id": message_id,
-            "from": request.from_portal,
-            "from_name": from_name,
-            "content": request.content,
-            "message_type": request.message_type,
-            "created_at": get_now().isoformat()
-        })
+        PORTAL_MODE.schedule_receive_push(
+            background_tasks,
+            push_message,
+            my_portal,
+            {
+                "type": "new_message",
+                "id": message_id,
+                "from": request.from_portal,
+                "from_name": from_name,
+                "content": request.content,
+                "message_type": request.message_type,
+                "created_at": get_now().isoformat(),
+            },
+        )
         
         return {"status": "received", "message_id": message_id}
     finally:
@@ -712,24 +747,33 @@ async def receive_message(request: ReceiveMessageRequest, background_tasks: Back
 
 @app.get("/api/messages")
 async def get_messages(contact_portal: str, since: Optional[str] = None):
-    """获取与某个联系人的消息"""
+    """获取与某个联系人的消息（行为由 PORTAL_MODE 决定）。"""
+    my_portal = get_my_portal_url()
+    thread_where, thread_params = PORTAL_MODE.message_thread_sql(my_portal, contact_portal)
+    
     conn = sqlite3.connect(DATABASE_PATH)
     cursor = conn.cursor()
     
     if since:
-        cursor.execute('''
+        cursor.execute(
+            f"""
             SELECT from_portal, to_portal, content, message_type, created_at
             FROM messages 
-            WHERE (from_portal = ? OR to_portal = ?) AND created_at > ?
+            WHERE {thread_where} AND created_at > ?
             ORDER BY created_at ASC
-        ''', (contact_portal, contact_portal, since))
+            """,
+            [*thread_params, since],
+        )
     else:
-        cursor.execute('''
+        cursor.execute(
+            f"""
             SELECT from_portal, to_portal, content, message_type, created_at
             FROM messages 
-            WHERE from_portal = ? OR to_portal = ?
+            WHERE {thread_where}
             ORDER BY created_at ASC
-        ''', (contact_portal, contact_portal))
+            """,
+            thread_params,
+        )
     
     messages = cursor.fetchall()
     conn.close()
@@ -972,18 +1016,22 @@ class ConnectionManager:
         logger.info(f"[WS] Connection attempt with api_key: {api_key[:30]}...")
         await websocket.accept()
         portal_url = verify_api_key(api_key)
-        logger.info(f"[WS] API Key verified, portal_url: {portal_url}")
+        logger.info(f"[WS] API Key verified, portal_url (from DB): {portal_url}")
         if portal_url:
-            self.active_connections[portal_url] = websocket
-            logger.info(f"[WS] Connection added for {portal_url}")
+            conn_key = PORTAL_MODE.ws_connection_key(portal_url)
+            self.active_connections[conn_key] = websocket
+            logger.info(f"[WS] Connection added for {conn_key}")
             logger.info(f"[WS] Active connections: {list(self.active_connections.keys())}")
         else:
             logger.info(f"[WS] API Key verification failed")
     
     def disconnect(self, api_key: str):
         portal_url = verify_api_key(api_key)
-        if portal_url and portal_url in self.active_connections:
-            del self.active_connections[portal_url]
+        if not portal_url:
+            return
+        conn_key = PORTAL_MODE.ws_connection_key(portal_url)
+        if conn_key in self.active_connections:
+            del self.active_connections[conn_key]
     
     async def send_message(self, portal_url: str, message: dict):
         import logging
@@ -1051,9 +1099,9 @@ async def websocket_endpoint(websocket: WebSocket, api_key: str):
                 pass
             
             elif data.get("type") == "sync_request":
-                # 返回未送达的消息（离线期间的消息）
-                portal_url = verify_api_key(api_key)
-                if portal_url:
+                v = verify_api_key(api_key)
+                sync_key = PORTAL_MODE.sync_storage_key(v) if v else ""
+                if sync_key:
                     conn = sqlite3.connect(DATABASE_PATH)
                     cursor = conn.cursor()
                     
@@ -1063,7 +1111,7 @@ async def websocket_endpoint(websocket: WebSocket, api_key: str):
                         FROM messages 
                         WHERE to_portal = ? AND is_delivered = FALSE
                         ORDER BY created_at ASC
-                    ''', (portal_url,))
+                    ''', (sync_key,))
                     
                     messages = cursor.fetchall()
                     conn.close()

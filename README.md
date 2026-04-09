@@ -62,6 +62,37 @@ python3 local/start.py status
 
 ---
 
+## develop 本地联调模式（Docker，支持动态扩容）
+
+仅用于本地开发调试，不影响默认生产部署路径。
+
+- 一环境一 Agent 身份（避免通信串线）
+- 目录：`develop/`
+- 文档：`develop/README.md`
+
+### 启动 2 套（2 Portal + 2 Bridge）
+
+```bash
+python3 develop/scripts/gen_envs.py --count 2
+bash develop/scripts/dev_stack.sh start --count 2
+```
+
+### 从 2 套扩容到 3 套
+
+```bash
+bash develop/scripts/dev_stack.sh scale --count 3
+```
+
+### 查看状态与日志
+
+```bash
+bash develop/scripts/dev_stack.sh status
+bash develop/scripts/dev_stack.sh logs portal 1
+bash develop/scripts/dev_stack.sh logs bridge 2
+```
+
+---
+
 ## API Key 类型
 
 ### 单共享 Key 方案（v0.6.0 新增）

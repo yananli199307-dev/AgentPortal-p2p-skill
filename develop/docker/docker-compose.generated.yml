@@ -1,0 +1,129 @@
+name: agentp2p-dev
+
+services:
+  lobster1:
+    build:
+      context: ../..
+      dockerfile: develop/docker/Dockerfile.lobster
+      args:
+        LOBSTER_BASE: "ghcr.io/openclaw/openclaw:latest"
+    image: agentp2p-lobster:dev
+    container_name: ap2p-lobster-1
+    env_file:
+      - ../runtime/env1/gateway.env
+    volumes:
+      - ../runtime/env1/lobster-home:/home/node/.openclaw
+      - ../../:/home/node/.openclaw/workspace/skills/agent-p2p
+    ports:
+      - "18790:18789"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+      - "portal1.ap2p.internal:host-gateway"
+      - "portal2.ap2p.internal:host-gateway"
+
+  portal1:
+    build:
+      context: ../..
+      dockerfile: develop/docker/Dockerfile.portal
+    container_name: ap2p-portal-1
+    environment:
+      PORT: "8080"
+      PORTAL_URL: "http://portal1:8080"
+      PORTAL_URL_ALIASES: "http://portal1.ap2p.internal:18080,http://portal1.localhost:18080"
+      DATABASE_PATH: "/app/develop/runtime/env1/portal.db"
+      PORTAL_LOG_PATH: "/app/develop/runtime/env1/portal.log"
+    ports:
+      - "18080:8080"
+    volumes:
+      - ../runtime:/app/develop/runtime
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+      - "portal1.ap2p.internal:host-gateway"
+      - "portal2.ap2p.internal:host-gateway"
+
+  bridge1:
+    build:
+      context: ../..
+      dockerfile: develop/docker/Dockerfile.bridge
+    container_name: ap2p-bridge-1
+    env_file:
+      - ../runtime/env1/gateway.env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+      - "portal1.ap2p.internal:host-gateway"
+      - "portal2.ap2p.internal:host-gateway"
+    depends_on:
+      - portal1
+      - lobster1
+    volumes:
+      - ../runtime:/app/develop/runtime
+      - ../runtime/env1/bridge.log:/app/local/bridge.log
+
+  lobster2:
+    build:
+      context: ../..
+      dockerfile: develop/docker/Dockerfile.lobster
+      args:
+        LOBSTER_BASE: "ghcr.io/openclaw/openclaw:latest"
+    image: agentp2p-lobster:dev
+    container_name: ap2p-lobster-2
+    env_file:
+      - ../runtime/env2/gateway.env
+    volumes:
+      - ../runtime/env2/lobster-home:/home/node/.openclaw
+      - ../../:/home/node/.openclaw/workspace/skills/agent-p2p
+    ports:
+      - "18791:18789"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+      - "portal1.ap2p.internal:host-gateway"
+      - "portal2.ap2p.internal:host-gateway"
+
+  portal2:
+    build:
+      context: ../..
+      dockerfile: develop/docker/Dockerfile.portal
+    container_name: ap2p-portal-2
+    environment:
+      PORT: "8080"
+      PORTAL_URL: "http://portal2:8080"
+      PORTAL_URL_ALIASES: "http://portal2.ap2p.internal:18081,http://portal2.localhost:18081"
+      DATABASE_PATH: "/app/develop/runtime/env2/portal.db"
+      PORTAL_LOG_PATH: "/app/develop/runtime/env2/portal.log"
+    ports:
+      - "18081:8080"
+    volumes:
+      - ../runtime:/app/develop/runtime
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+      - "portal1.ap2p.internal:host-gateway"
+      - "portal2.ap2p.internal:host-gateway"
+
+  bridge2:
+    build:
+      context: ../..
+      dockerfile: develop/docker/Dockerfile.bridge
+    container_name: ap2p-bridge-2
+    env_file:
+      - ../runtime/env2/gateway.env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+      - "portal1.ap2p.internal:host-gateway"
+      - "portal2.ap2p.internal:host-gateway"
+    depends_on:
+      - portal2
+      - lobster2
+    volumes:
+      - ../runtime:/app/develop/runtime
+      - ../runtime/env2/bridge.log:/app/local/bridge.log
+  openclaw-ui-proxy:
+    image: caddy:2-alpine
+    container_name: ap2p-openclaw-ui-proxy
+    ports:
+      - "18443:8443"
+    volumes:
+      - ./Caddyfile.openclaw-ui.generated:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - lobster1
+      - lobster2
+
