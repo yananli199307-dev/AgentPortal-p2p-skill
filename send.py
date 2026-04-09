@@ -95,18 +95,17 @@ def send_message(api_key, hub_url, contact_id, content):
         resp_backup = requests.post(
             f"{hub_url}/api/message/sent",
             json={
+                "api_key": api_key,
                 "to_portal": to_portal,
                 "content": content,
-                "message_type": "text",
-                "original_id": message_id
+                "message_type": "text"
             },
-            headers={"Authorization": f"Bearer {api_key}"},
             verify=False
         )
         if resp_backup.status_code == 200:
             print(f"✅ 已记录到自己的 Portal")
         else:
-            print(f"⚠️ 记录到自己的 Portal 失败: {resp_backup.status_code}")
+            print(f"⚠️ 记录到自己的 Portal 失败: {resp_backup.status_code} - {resp_backup.text}")
     except Exception as e:
         print(f"⚠️ 备份消息失败: {e}")
     
