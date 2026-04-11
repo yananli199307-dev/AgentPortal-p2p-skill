@@ -86,7 +86,7 @@ metadata:
         "install":
           {
             "target_dir": "~/.openclaw/workspace/skills/agent-p2p",
-            "target_dir_reason": "openclaw 只扫描以下6个路径下的 SKILL.md: (1)openclaw.json extraDirs (2)bundled内置 (3)~/.openclaw/skills/ (4)~/.openclaw/workspace/skills/ (5)~/.agents/skills/ (6)<workspace>/.agents/skills/。extensions/ 不在扫描列表内，禁止使用。",
+            "target_dir_reason": "openclaw skill 扫描路径（优先级从低到高）: (1)openclaw.json skills.load.extraDirs (2)bundled内置 (3)~/.openclaw/skills/ (4)~/.agents/skills/ (5)~/.openclaw/workspace/.agents/skills/ (6)~/.openclaw/workspace/skills/  ← 推荐，默认存在。禁止使用 extensions/ workspace/extensions/ 等路径，它们不在扫描列表内。",
             "warning": "⚠️ 克隆目录固定为 ~/.openclaw/workspace/skills/agent-p2p，禁止使用其他目录",
             "steps":
               [
