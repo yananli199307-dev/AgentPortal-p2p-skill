@@ -125,36 +125,40 @@ metadata:
 
 **第一步：VPS 部署 Portal**
 
-AI 通过 SSH 执行：
+AI 通过 SSH 执行（只需 VPS IP 或域名，**无需域名解析、无需 nginx、无需 certbot**）：
 
 ```bash
-ssh -i <SSH_KEY> ubuntu@<VPS_IP> \
-  "curl -fsSL https://raw.githubusercontent.com/yananli199307-dev/AgentPortal-p2p-skill/master/vps_install.sh | sudo bash -s <DOMAIN> <EMAIL>"
+# 默认端口 18080（高位端口，无需 root）
+ssh -i <SSH_KEY> root@<VPS_IP>   "curl -fsSL https://raw.githubusercontent.com/yananli199307-dev/AgentPortal-p2p-skill/master/vps_install.sh | bash -s <VPS_IP>"
+
+# 或指定端口
+ssh -i <SSH_KEY> root@<VPS_IP>   "curl -fsSL .../vps_install.sh | bash -s <VPS_IP> 9443"
 ```
 
 脚本内置 7 个检查点步骤（断点续装，重跑自动跳过已完成步骤）：
 
 | 步骤 | 内容 |
 |------|------|
-| step_01 | 安装系统依赖（git/nginx/certbot/python3/sqlite3） |
+| step_01 | 安装系统依赖（git/python3/sqlite3/openssl，**不含 nginx**） |
 | step_02 | 克隆仓库到 `/opt/agent-p2p` |
 | step_03 | 创建 Python venv + pip install |
-| step_04 | 配置 Nginx + 申请 SSL（certbot 后**自动 restart nginx**） |
+| step_04 | 用 openssl 生成自签名 SSL 证书（10 年，无需域名和 certbot） |
 | step_05 | 初始化 SQLite 数据库 + 生成 `ap2p_xxx` API Key |
-| step_06 | 创建 systemd 服务 + **每次执行都自动 restart 服务**（确保代码更新后新版本生效） |
-| step_07 | 验证本地 HTTP/HTTPS 健康 |
+| step_06 | 创建 systemd 服务（uvicorn 直接 HTTPS 监听指定端口）+ **每次都自动 restart** |
+| step_07 | 验证 HTTPS 健康（`curl -sk https://127.0.0.1:<PORT>/`） |
 
-> 🔁 **自动重启已内置（step_06）**：不论首次安装还是重跑，脚本都会执行 `systemctl restart agent-p2p`。
-> 代码更新后只需重跑脚本，**无需手动重启**。
+> 🔁 **自动重启已内置（step_06）**：不论首次安装还是重跑，都会执行 `systemctl restart agent-p2p`，代码更新后无需手动重启。
+
+> 🔒 **自签证书兼容**：bridge.py 和 send.py 均内置 `verify=False`，自签证书完全兼容，不影响通信。
 
 成功标志（AI grep 提取 API_KEY）：
 ```
-INSTALL_OK API_KEY=ap2p_xxx PORTAL_URL=https://<DOMAIN> ADMIN_PASS=xxx
+INSTALL_OK API_KEY=ap2p_xxx PORTAL_URL=https://<VPS_IP>:18080
 ```
 
 失败标志（AI 判断是否需要清理重装）：
 ```
-INSTALL_FAILED STEP=step_04 ERROR=certbot_failed
+INSTALL_FAILED STEP=step_04 ERROR=openssl_cert_failed
 ```
 
 **第二步：本地 Bridge 安装**
@@ -180,10 +184,10 @@ LOCAL_OK BRIDGE_PID=<pid>
 **完成验证**：
 
 ```bash
-# 1. VPS Portal 健康
-curl -sk https://<DOMAIN>/api/portal/info
+# 1. VPS Portal 健康（自签证书用 -sk）
+curl -sk https://<VPS_IP>:18080/api/portal/info
 
-# 2. VPS 服务状态（SSH 登录后验证）
+# 2. VPS 服务状态（SSH 登录后）
 systemctl is-active agent-p2p
 
 # 3. 本地 bridge 进程
@@ -197,7 +201,7 @@ cat ~/.openclaw/workspace/skills/agent-p2p/skill_status.json
 
 ```bash
 # VPS
-ssh ubuntu@<VPS_IP> "curl -fsSL .../vps_uninstall.sh | sudo bash"
+ssh root@<VPS_IP> "curl -fsSL .../vps_uninstall.sh | bash"
 # 本地
 bash ~/.openclaw/workspace/skills/agent-p2p/local_uninstall.sh
 ```
@@ -207,10 +211,10 @@ bash ~/.openclaw/workspace/skills/agent-p2p/local_uninstall.sh
 `~/.openclaw/gateway.env`（由 `local_install.sh` 自动写入，无需手动编辑）：
 
 ```bash
-AGENTP2P_API_KEY=ap2p_xxx      # Owner Key，最高权限，不要共享
-AGENTP2P_HUB_URL=https://...   # 自己的 Portal 域名
+AGENTP2P_API_KEY=ap2p_xxx          # Owner Key，最高权限，不要共享
+AGENTP2P_HUB_URL=https://IP:18080  # 自己的 Portal 地址（IP:PORT）
 OPENCLAW_GATEWAY_URL=http://127.0.0.1:18789
-OPENCLAW_HOOKS_TOKEN=xxx        # 自动从 openclaw.json 读取
+OPENCLAW_HOOKS_TOKEN=xxx            # 自动从 openclaw.json 读取
 ```
 
 ### API Key 类型说明
@@ -233,7 +237,7 @@ ssh -i your-key.pem ubuntu@your-vps-ip
 cd /opt/agent-p2p
 
 # 生成随机 API Key 并插入
-sqlite3 data/portal.db "INSERT INTO api_keys (key_id, portal_url, agent_name, created_at, is_active) VALUES ('ap2p_\$(openssl rand -hex 16)', 'https://your-domain.com', 'your-agent-name', datetime('now'), 1);"
+sqlite3 data/portal.db "INSERT INTO api_keys (key_id, portal_url, agent_name, created_at, is_active) VALUES ('ap2p_\$(openssl rand -hex 16)', 'https://<VPS_IP>:18080', 'your-agent-name', datetime('now'), 1);"
 ```
 
 之后就可以用 API 操作了。
@@ -363,15 +367,8 @@ python3 send_file.py -f document.pdf -t 1
 
 ### 查看联系人
 
-访问 `https://your-domain.com/static/admin.html`
+访问 `https://<VPS_IP>:18080/static/admin.html`（自签证书，浏览器提示忽略即可）
 
-> 🔐 **管理后台密码保护**：
-> - 通过 `auto_install.py` 部署的 Portal 会自动配置 Nginx 密码保护
-> - 用户名：`admin`
-> - 密码：部署完成后会显示在终端，并保存到 `~/.openclaw/agent-p2p-admin.txt`
-> - 如需修改密码，SSH 到 VPS 执行：`sudo htpasswd /etc/nginx/.htpasswd admin`
->
-> ⚠️ **Agent 注意**：部署完成后必须向用户展示初始密码，并询问是否需要修改。
 
 ## 更新
 
