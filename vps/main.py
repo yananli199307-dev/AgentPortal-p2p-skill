@@ -1059,44 +1059,56 @@ class ConnectionManager:
         portal_url = verify_api_key(api_key)
         logger.info(f"[WS] API Key verified, portal_url: {portal_url}")
         if portal_url:
-            self.active_connections[portal_url] = websocket
+            self.active_connections.setdefault(portal_url, []).append(websocket)
             logger.info(f"[WS] Connection added for {portal_url}")
             logger.info(f"[WS] Active connections: {list(self.active_connections.keys())}")
         else:
             logger.info(f"[WS] API Key verification failed")
     
-    def disconnect(self, api_key: str):
+    def disconnect(self, api_key: str, websocket: WebSocket = None):
         portal_url = verify_api_key(api_key)
         if portal_url and portal_url in self.active_connections:
-            del self.active_connections[portal_url]
+            if websocket:
+                try:
+                    self.active_connections[portal_url].remove(websocket)
+                except ValueError:
+                    pass
+                if not self.active_connections[portal_url]:
+                    del self.active_connections[portal_url]
+            else:
+                del self.active_connections[portal_url]
     
     async def send_message(self, portal_url: str, message: dict):
         import logging
         logger = logging.getLogger(__name__)
         logger.info(f"[DEBUG] Trying to send to {portal_url}")
-        logger.info(f"[DEBUG] Active connections: {list(self.active_connections.keys())}")
         if portal_url in self.active_connections:
-            await self.active_connections[portal_url].send_json(message)
+            for ws in self.active_connections[portal_url]:
+                try:
+                    await ws.send_json(message)
+                except Exception:
+                    pass
             logger.info(f"[DEBUG] Message sent to {portal_url}")
         else:
-            logger.info(f"[DEBUG] No active connection for {portal_url}")
-            # 抛出异常，让调用者知道发送失败
             raise Exception(f"No active WebSocket connection for {portal_url}")
     
     async def broadcast(self, message: dict):
-        """广播消息给所有连接的 Agent"""
+        """广播消息给所有连接"""
         import logging
         logger = logging.getLogger(__name__)
-        disconnected = []
-        for portal_url, websocket in self.active_connections.items():
-            try:
-                await websocket.send_json(message)
-                logger.info(f"[BROADCAST] Message sent to {portal_url}")
-            except Exception as e:
-                logger.error(f"[BROADCAST] Failed to send to {portal_url}: {e}")
-                disconnected.append(portal_url)
-        # 清理断开的连接
-        for portal_url in disconnected:
+        disconnected_portals = []
+        for portal_url, ws_list in self.active_connections.items():
+            dead = []
+            for ws in ws_list:
+                try:
+                    await ws.send_json(message)
+                except Exception:
+                    dead.append(ws)
+            for ws in dead:
+                ws_list.remove(ws)
+            if not ws_list:
+                disconnected_portals.append(portal_url)
+        for portal_url in disconnected_portals:
             del self.active_connections[portal_url]
 
 manager = ConnectionManager()
@@ -1288,7 +1300,7 @@ async def websocket_endpoint(websocket: WebSocket, api_key: str):
                     })
     
     except WebSocketDisconnect:
-        manager.disconnect(api_key)
+        manager.disconnect(api_key, websocket)
 
 # 静态文件（管理后台）
 import os
@@ -1717,7 +1729,7 @@ async def download_file(file_id: str, api_key: str):
         
         # 查询传输记录
         cursor.execute('''
-            SELECT filename, size, md5, status, to_portal, chunks_total
+            SELECT filename, size, md5, status, to_portal, from_portal, chunks_total
             FROM file_transfers WHERE file_id = ?
         ''', (file_id,))
         result = cursor.fetchone()
@@ -1725,10 +1737,10 @@ async def download_file(file_id: str, api_key: str):
         if not result:
             raise HTTPException(status_code=404, detail="File transfer not found")
         
-        filename, size, md5, status, to_portal, chunks_total = result
+        filename, size, md5, status, to_portal, from_portal, chunks_total = result
         
-        # 验证权限（只有接收方可以下载）
-        if portal != to_portal:
+        # 验证权限（发送方和接收方都可以下载）
+        if portal != to_portal and portal != from_portal:
             raise HTTPException(status_code=403, detail="Not authorized")
         
         if status != 'completed':
