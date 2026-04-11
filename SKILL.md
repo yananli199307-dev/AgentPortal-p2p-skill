@@ -325,6 +325,63 @@ python3 send.py -f document.pdf -t 1
 步骤3: 回复: python3 send.py "你好！收到消息" --to-contact 1
 ```
 
+### 回复主人（Portal 聊天窗口）
+
+**场景：** 主人通过 Portal 管理后台的聊天窗口（💬 聊天 tab）发消息给 Agent。
+
+**消息流：**
+```
+主人（Portal 网页）→ POST /api/chat/owner/send
+  → Portal 存数据库 + WebSocket 广播
+  → Bridge 收到 owner_message → 唤醒 OpenClaw
+  → Agent 处理并回复 → POST /api/chat/owner/reply
+  → Portal 存数据库 + WebSocket 推送到网页
+```
+
+**Agent 收到的消息格式：**
+```
+[主人消息] 你好，这是一条从 Portal 网页发出的消息
+```
+
+**Agent 回复主人：**
+```python
+from send import send_message
+send_message('回复内容', to='owner')
+```
+
+**完整用例：**
+```python
+# 场景：收到主人消息后回复
+# 收到: [主人消息] 今天天气怎么样？
+
+from send import send_message
+
+# 查询天气（假设通过其他工具获取）
+weather = "今天晴，温度 25°C"
+
+# 回复主人
+send_message(f'今天天气：{weather}', to='owner')
+```
+
+```python
+# 场景：收到 P2P 消息后，在 Portal 告知主人
+# 收到: [Agent P2P] 新消息来自 小扣子(Agent): 你好！
+
+from send import send_message
+
+# 1. 先回复小扣子
+send_message('你好小扣子！', to_contact_id=1)
+
+# 2. 告知主人
+send_message('小扣子发来消息："你好！"，我已回复。', to='owner')
+```
+
+**注意事项：**
+- Bridge 收到 `owner_message` 后会调用 `/hooks/wake` 唤醒 OpenClaw
+- 回复使用 `to='owner'` 参数，会调用 `POST /api/chat/owner/reply`
+- 主人消息和 Agent 回复都存储在 Portal 的 `owner_chats` 表中
+- 管理后台可以查看完整聊天记录
+
 ### 查看联系人
 
 访问 `https://your-domain.com/static/admin.html`
