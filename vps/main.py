@@ -161,8 +161,56 @@ def init_db():
 
 init_db()
 
+
+# ========== Token 管理 ==========
+import time
+active_tokens = {}
+
+def create_token():
+    token = secrets.token_hex(32)
+    active_tokens[token] = time.time() + 86400
+    return token
+
+def verify_token(token):
+    if token in active_tokens and active_tokens[token] > time.time():
+        return True
+    active_tokens.pop(token, None)
+    return False
+
+def cleanup_tokens():
+    now = time.time()
+    expired = [t for t, exp in active_tokens.items() if exp <= now]
+    for t in expired:
+        del active_tokens[t]
+
+from fastapi import Header
+def get_token(authorization: str = Header(None)):
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="未登录")
+    token = authorization.replace("Bearer ", "")
+    # 先检查 admin token
+    if verify_token(token):
+        return token
+    # 再检查 API key (ap2p_ 开头) — 让 send.py 等工具也能访问
+    if token.startswith("ap2p_"):
+        portal_url = verify_api_key(token)
+        if portal_url:
+            return token
+    raise HTTPException(status_code=401, detail="未登录或 API Key 无效")
+# ========== Token 管理结束 ==========
+
 # 运行数据库迁移
 run_migrations()
+
+
+# 初始化 admin 密码
+conn = sqlite3.connect(DATABASE_PATH)
+cursor = conn.cursor()
+cursor.execute("SELECT 1 FROM config WHERE key = 'admin_password'")
+if not cursor.fetchone():
+    cursor.execute("INSERT INTO config (key, value) VALUES ('admin_password', '19950302')")
+    conn.commit()
+conn.close()
 
 # 数据模型
 class GuestMessageRequest(BaseModel):
@@ -239,6 +287,33 @@ def verify_api_key(api_key: str) -> Optional[str]:
 def get_my_portal_url() -> str:
     """获取当前 Portal 的 URL（从环境变量或配置）"""
     return os.getenv("PORTAL_URL", "")
+
+
+@app.post("/api/admin/login")
+async def admin_login(request: Request):
+    try:
+        body = await request.json()
+        password = body.get("password", "")
+    except:
+        raise HTTPException(status_code=400, detail="请求格式错误")
+    
+    conn = sqlite3.connect(DATABASE_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT value FROM config WHERE key = 'admin_password'")
+    row = cursor.fetchone()
+    conn.close()
+    
+    if not row or row[0] != password:
+        raise HTTPException(status_code=401, detail="密码错误")
+    
+    token = create_token()
+    cleanup_tokens()
+    
+    return JSONResponse({
+        "token": token,
+        "expiry": int((time.time() + 86400) * 1000)
+    })
+
 
 # API 路由
 
@@ -326,7 +401,7 @@ async def leave_message(request: GuestMessageRequest, request_obj: Request):
     return {"status": "ok", "message_id": message_id}
 
 @app.get("/api/guest/messages")
-async def get_guest_messages():
+async def get_guest_messages(token: str = Depends(get_token)):
     """获取匿名留言列表"""
     conn = sqlite3.connect(DATABASE_PATH)
     cursor = conn.cursor()
@@ -380,7 +455,7 @@ async def update_message_status(message_id: int, request: Request):
     return {"status": "updated", "message_id": message_id, "new_status": status}
 
 @app.post("/api/guest/messages/{message_id}/approve")
-async def approve_guest_message(message_id: int, request: Request):
+async def approve_guest_message(message_id: int, request: Request, token: str = Depends(get_token)):
     """
     主人审批留言：同意添加联系人并生成 API Key
     需要传入对方的 Portal URL 和联系信息
@@ -758,7 +833,7 @@ async def get_messages(contact_portal: str, since: Optional[str] = None):
     }
 
 @app.get("/api/contacts")
-async def get_contacts():
+async def get_contacts(token: str = Depends(get_token)):
     """获取联系人列表"""
     conn = sqlite3.connect(DATABASE_PATH)
     cursor = conn.cursor()
@@ -808,7 +883,7 @@ class CreateContactRequest(BaseModel):
     SHARED_KEY: Optional[str] = None  # 共享的 Key
 
 @app.post("/api/contacts")
-async def create_contact(request: CreateContactRequest):
+async def create_contact(request: CreateContactRequest, token: str = Depends(get_token)):
     """创建联系人"""
     conn = sqlite3.connect(DATABASE_PATH)
     cursor = conn.cursor()
@@ -832,7 +907,7 @@ async def create_contact(request: CreateContactRequest):
     return {"status": "created"}
 
 @app.delete("/api/contacts/{contact_id}")
-async def delete_contact(contact_id: int):
+async def delete_contact(contact_id: int, token: str = Depends(get_token)):
     """删除联系人"""
     conn = sqlite3.connect(DATABASE_PATH)
     cursor = conn.cursor()
@@ -849,7 +924,7 @@ async def delete_contact(contact_id: int):
     return {"status": "deleted"}
 
 @app.put("/api/contacts/{contact_id}")
-async def update_contact(contact_id: int, request: CreateContactRequest):
+async def update_contact(contact_id: int, request: CreateContactRequest, token: str = Depends(get_token)):
     """更新联系人信息"""
     conn = sqlite3.connect(DATABASE_PATH)
     cursor = conn.cursor()
@@ -918,7 +993,7 @@ async def get_pending_notifications():
     }
 
 @app.get("/api/portal/info")
-async def get_portal_info():
+async def get_portal_info(token: str = Depends(get_token)):
     """获取当前 Portal 信息"""
     # 获取第一个可用的 API Key
     conn = sqlite3.connect(DATABASE_PATH)
@@ -953,7 +1028,7 @@ class OpenClawConfig(BaseModel):
     token: str
 
 @app.post("/api/config/openclaw")
-async def save_openclaw_config(request: OpenClawConfig):
+async def save_openclaw_config(request: OpenClawConfig, token: str = Depends(get_token)):
     """保存 OpenClaw 配置"""
     conn = sqlite3.connect(DATABASE_PATH)
     cursor = conn.cursor()
@@ -984,23 +1059,16 @@ class ConnectionManager:
         portal_url = verify_api_key(api_key)
         logger.info(f"[WS] API Key verified, portal_url: {portal_url}")
         if portal_url:
-            if portal_url not in self.active_connections:
-                self.active_connections[portal_url] = []
-            self.active_connections[portal_url].append(websocket)
+            self.active_connections[portal_url] = websocket
             logger.info(f"[WS] Connection added for {portal_url}")
             logger.info(f"[WS] Active connections: {list(self.active_connections.keys())}")
         else:
             logger.info(f"[WS] API Key verification failed")
     
-    def disconnect(self, portal_url: str, websocket=None):
+    def disconnect(self, api_key: str):
+        portal_url = verify_api_key(api_key)
         if portal_url and portal_url in self.active_connections:
-            if websocket:
-                try:
-                    self.active_connections[portal_url].remove(websocket)
-                except ValueError:
-                    pass
-            if not self.active_connections[portal_url]:
-                del self.active_connections[portal_url]
+            del self.active_connections[portal_url]
     
     async def send_message(self, portal_url: str, message: dict):
         import logging
@@ -1008,22 +1076,8 @@ class ConnectionManager:
         logger.info(f"[DEBUG] Trying to send to {portal_url}")
         logger.info(f"[DEBUG] Active connections: {list(self.active_connections.keys())}")
         if portal_url in self.active_connections:
-            disconnected = []
-            for ws in self.active_connections[portal_url]:
-                try:
-                    await ws.send_json(message)
-                    logger.info(f"[DEBUG] Message sent to {portal_url}")
-                except Exception as e:
-                    logger.error(f"[DEBUG] Failed to send to {portal_url}: {e}")
-                    disconnected.append(ws)
-            # 清理失败的连接
-            for ws in disconnected:
-                try:
-                    self.active_connections[portal_url].remove(ws)
-                except ValueError:
-                    pass
-            if not self.active_connections[portal_url]:
-                del self.active_connections[portal_url]
+            await self.active_connections[portal_url].send_json(message)
+            logger.info(f"[DEBUG] Message sent to {portal_url}")
         else:
             logger.info(f"[DEBUG] No active connection for {portal_url}")
             # 抛出异常，让调用者知道发送失败
@@ -1034,23 +1088,16 @@ class ConnectionManager:
         import logging
         logger = logging.getLogger(__name__)
         disconnected = []
-        for portal_url, websockets in list(self.active_connections.items()):
-            for ws in websockets:
-                try:
-                    await ws.send_json(message)
-                    logger.info(f"[BROADCAST] Message sent to {portal_url}")
-                except Exception as e:
-                    logger.error(f"[BROADCAST] Failed to send to {portal_url}: {e}")
-                    disconnected.append((portal_url, ws))
+        for portal_url, websocket in self.active_connections.items():
+            try:
+                await websocket.send_json(message)
+                logger.info(f"[BROADCAST] Message sent to {portal_url}")
+            except Exception as e:
+                logger.error(f"[BROADCAST] Failed to send to {portal_url}: {e}")
+                disconnected.append(portal_url)
         # 清理断开的连接
-        for portal_url, ws in disconnected:
-            if portal_url in self.active_connections:
-                try:
-                    self.active_connections[portal_url].remove(ws)
-                except ValueError:
-                    pass
-                if not self.active_connections[portal_url]:
-                    del self.active_connections[portal_url]
+        for portal_url in disconnected:
+            del self.active_connections[portal_url]
 
 manager = ConnectionManager()
 
@@ -1058,7 +1105,7 @@ manager = ConnectionManager()
 # ============ Owner Chat API (主人与 OpenClaw 对话) ============
 
 @app.post("/api/chat/owner/send")
-async def owner_send_message(request: Request):
+async def owner_send_message(request: Request, token: str = Depends(get_token)):
     """主人发送消息给 OpenClaw（存入数据库并通过 WebSocket 通知 Bridge）"""
     try:
         body = await request.json()
@@ -1137,7 +1184,7 @@ async def owner_reply_message(request: Request):
 
 
 @app.get("/api/chat/owner/history")
-async def owner_chat_history(limit: int = 50):
+async def owner_chat_history(limit: int = 50, token: str = Depends(get_token)):
     """获取主人与 OpenClaw 的聊天记录"""
     conn = sqlite3.connect(DATABASE_PATH)
     cursor = conn.cursor()
@@ -1241,7 +1288,7 @@ async def websocket_endpoint(websocket: WebSocket, api_key: str):
                     })
     
     except WebSocketDisconnect:
-        manager.disconnect(portal_url, websocket)
+        manager.disconnect(api_key)
 
 # 静态文件（管理后台）
 import os
@@ -1827,4 +1874,3 @@ async def verify_and_complete_transfer(file_id: str):
     finally:
         if conn:
             conn.close()
-
