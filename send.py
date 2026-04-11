@@ -184,6 +184,7 @@ def main():
     parser.add_argument("content", nargs="?", help="消息内容")
     parser.add_argument("--to-contact", type=int, help="联系人ID")
     parser.add_argument("--to-user", type=int, help="用户ID（同联系人ID）")
+    parser.add_argument("--to-owner", action="store_true", help="发送给主人（Portal 聊天窗口）")
     parser.add_argument("--list", action="store_true", help="列出联系人")
     
     args = parser.parse_args()
@@ -196,7 +197,8 @@ def main():
         parser.print_help()
         sys.exit(1)
     
-    send_message(args.content, to_contact_id=args.to_contact, to_user_id=args.to_user)
+    to = 'owner' if args.to_owner else None
+    send_message(args.content, to_contact_id=args.to_contact, to_user_id=args.to_user, to=to)
 
 
 if __name__ == "__main__":
