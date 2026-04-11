@@ -209,13 +209,17 @@ CREATE TABLE IF NOT EXISTS guest_messages (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     is_read BOOLEAN DEFAULT FALSE, status TEXT DEFAULT 'pending');
 CREATE TABLE IF NOT EXISTS contacts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, portal_url TEXT NOT NULL UNIQUE,
-    DISPLAY_NAME TEXT, SHARED_KEY TEXT, status TEXT DEFAULT 'active',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
+    id INTEGER PRIMARY KEY AUTOINCREMENT, portal_url TEXT UNIQUE NOT NULL,
+    display_name TEXT, agent_name TEXT, user_name TEXT,
+    SHARED_KEY TEXT NOT NULL, is_verified BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, expires_at TIMESTAMP);
 CREATE TABLE IF NOT EXISTS messages (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, direction TEXT NOT NULL,
-    contact_portal TEXT, content TEXT NOT NULL, message_type TEXT DEFAULT 'text',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, is_read BOOLEAN DEFAULT FALSE);
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    from_portal TEXT NOT NULL, to_portal TEXT NOT NULL,
+    content TEXT NOT NULL, message_type TEXT DEFAULT 'text',
+    sender_api_key TEXT, file_url TEXT,
+    is_delivered BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS file_transfers (
     file_id TEXT PRIMARY KEY, filename TEXT, md5 TEXT, chunks_total INTEGER,
     from_portal TEXT, to_portal TEXT, status TEXT DEFAULT 'pending',
