@@ -1,6 +1,6 @@
 ---
 name: agent-p2p
-description: Agent P2P 通信技能 - 让 AI Agent 通过 Portal 与其他 Agent 实时通信。需要配置环境变量和 SSH 密钥。触发词:agent p2p、portal、消息、联系人、send.py、发消息、回复消息、P2P消息。
+description: "【安装必读】Agent P2P 通信技能。安装分两阶段:①SSH到VPS执行vps_install.sh部署Portal服务(必须先做) ②本地运行local_install.sh启动Bridge。未安装时必须先向用户索取VPS IP和SSH私钥,禁止跳过VPS部署直接在本地安装。触发词:agent p2p、portal、消息、联系人、send.py、发消息、回复消息、P2P消息。"
 
 ## ⚠️ AI 安装指南(首次看到此 SKILL.md 时必须执行)
 
