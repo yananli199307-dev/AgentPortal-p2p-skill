@@ -266,30 +266,31 @@ class AgentP2PSkill:
         ssl_context = ssl.create_default_context()
         ssl_context.check_hostname = False
         ssl_context.verify_mode = ssl.CERT_NONE
-        
-        try:
-            # ws:// 不传 ssl 参数，wss:// 才传
-            # 解析真实 IP，避免本地代理（Clash TUN 等）拦截域名流量
-            import socket as _socket
-            from urllib.parse import urlparse
-            parsed = urlparse(ws_url)
-            hostname = parsed.hostname
-            port = parsed.port or (443 if ws_url.startswith('wss://') else 80)
-            try:
-                real_ip = _socket.getaddrinfo(hostname, port, _socket.AF_UNSPEC, _socket.SOCK_STREAM)[0][4][0]
-                if real_ip != hostname:
-                    ip_url = ws_url.replace(f'//{hostname}', f'//{real_ip}', 1)
-                    logger.info(f'使用 IP 直连: {real_ip}（域名 {hostname}）')
-                else:
-                    ip_url = ws_url
-            except Exception:
-                ip_url = ws_url
 
-            # ws:// 不传 ssl 参数，wss:// 才传；保持 Host 头为原始域名
-            host_header = hostname if (port in (80, 443)) else f'{hostname}:{port}'
-            ws_kwargs = {'ssl': ssl_context} if ws_url.startswith('wss://') else {}
-            ws_kwargs['additional_headers'] = {'Host': host_header}
-            async with websockets.connect(ip_url, **ws_kwargs) as websocket:
+        # 解析真实 IP，绕过本地代理/fake-ip DNS 劫持
+        from urllib.parse import urlparse
+        import socket as _socket
+        _parsed = urlparse(self.hub_url)
+        _hostname = _parsed.hostname
+        _port = _parsed.port or 18080
+        try:
+            _real_ip = _socket.getaddrinfo(_hostname, _port, proto=_socket.IPPROTO_TCP)[0][4][0]
+            if _real_ip.startswith('198.18.') or _real_ip.startswith('198.19.'):
+                logger.warning(f'DNS 解析到 fake-ip {_real_ip}，可能被代理劫持，回退使用域名')
+                _real_ip = _hostname
+            else:
+                logger.info(f'DNS 解析: {_hostname} -> {_real_ip}')
+        except Exception as _e:
+            logger.warning(f'DNS 解析失败: {_e}，使用原始域名')
+            _real_ip = _hostname
+
+        _ip_ws_url = ws_url.replace(f'//{_hostname}:', f'//{_real_ip}:')
+        _connect_kwargs = {}
+        if ws_url.startswith('wss://'):
+            _connect_kwargs['ssl'] = ssl_context
+
+        try:
+            async with websockets.connect(_ip_ws_url, **_connect_kwargs) as websocket:
                 self.ws = websocket
                 self.reconnect_delay = 5  # 重置重连延迟
                 logger.info('WebSocket 连接成功')
@@ -314,7 +315,8 @@ class AgentP2PSkill:
             logger.warning('WebSocket 连接断开')
             self.update_status('disconnected', 'WebSocket 连接断开')
         except Exception as e:
-            logger.error(f'WebSocket 异常: {e}')
+            import traceback
+            logger.error(f'WebSocket 异常: {type(e).__name__}: {e}\n{traceback.format_exc()}')
             self.update_status('error', str(e))
     
     async def run(self):
