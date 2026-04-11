@@ -150,6 +150,10 @@ class AgentP2PSkill:
             content = notification.get('content', '')
             return f"[Agent P2P] 系统通知: {content}"
         
+        elif msg_type == 'owner_message':
+            content = notification.get('content', '')
+            return f"[主人消息] {content}"
+        
         else:
             return f"[Agent P2P] 通知: {json.dumps(notification, ensure_ascii=False)}"
     
@@ -158,12 +162,13 @@ class AgentP2PSkill:
         msg_type = data.get('type')
         
         if msg_type == 'pong':
-            logger.debug('收到心跳响应')
+            logger.info('收到 pong，连接正常')
+            self.pong_received = True
             return
         
         # 处理 Portal 的心跳 ping，回复 pong 保持连接
         if msg_type == 'ping':
-            logger.debug('收到ping，回复pong')
+            logger.info('收到 Portal ping，回复 pong')
             if self.ws:
                 await self.ws.send(json.dumps({'type': 'pong'}))
             return
@@ -226,6 +231,18 @@ class AgentP2PSkill:
                 'actions': ['查看', '下载']
             }
 
+        elif msg_type == 'owner_message':
+            content = data.get('content', '')
+            msg_id = data.get('message_id')
+            logger.info(f'主人消息: {content}')
+            notification = {
+                'type': 'owner_message',
+                'content': content,
+                'message_id': msg_id,
+                'priority': 'high',
+                'timestamp': datetime.now().isoformat()
+            }
+
         elif msg_type == 'sync_response':
             messages = data.get('messages', [])
             if messages:
@@ -270,6 +287,7 @@ class AgentP2PSkill:
         try:
             async with websockets.connect(ws_url, ssl=ssl_context) as websocket:
                 self.ws = websocket
+                self.pong_received = True
                 self.reconnect_delay = 5  # 重置重连延迟
                 logger.info('WebSocket 连接成功')
                 self.update_status('connected', 'WebSocket 连接成功')
@@ -279,15 +297,23 @@ class AgentP2PSkill:
                     'type': 'sync_request'
                 }))
                 
-                # 处理消息
-                async for message in websocket:
+                # 并行运行消息接收和心跳检测
+                receive_task = asyncio.create_task(self._receive_messages(websocket))
+                heartbeat_task = asyncio.create_task(self._heartbeat(websocket))
+                
+                # 等待任一任务完成（正常情况下都不会结束）
+                done, pending = await asyncio.wait(
+                    [receive_task, heartbeat_task],
+                    return_when=asyncio.FIRST_COMPLETED
+                )
+                
+                # 取消未完成的任务
+                for task in pending:
+                    task.cancel()
                     try:
-                        data = json.loads(message)
-                        await self.handle_message(data)
-                    except json.JSONDecodeError:
-                        logger.error(f'收到无效 JSON: {message[:100]}')
-                    except Exception as e:
-                        logger.error(f'处理消息异常: {e}')
+                        await task
+                    except asyncio.CancelledError:
+                        pass
                         
         except websockets.exceptions.ConnectionClosed:
             logger.warning('WebSocket 连接断开')
@@ -295,6 +321,38 @@ class AgentP2PSkill:
         except Exception as e:
             logger.error(f'WebSocket 异常: {e}')
             self.update_status('error', str(e))
+    
+    async def _receive_messages(self, websocket):
+        """持续接收 WebSocket 消息"""
+        async for message in websocket:
+            try:
+                data = json.loads(message)
+                await self.handle_message(data)
+            except json.JSONDecodeError:
+                logger.error(f'收到无效 JSON: {message[:100]}')
+            except Exception as e:
+                logger.error(f'处理消息异常: {e}')
+    
+    async def _heartbeat(self, websocket):
+        """主动心跳：每30秒发 ping，5秒内没收到 pong 则断开"""
+        while True:
+            await asyncio.sleep(30)
+            try:
+                self.pong_received = False
+                await websocket.send(json.dumps({'type': 'ping'}))
+                # 等5秒看有没有 pong
+                for _ in range(5):
+                    await asyncio.sleep(1)
+                    if self.pong_received:
+                        break
+                else:
+                    # 5秒内没收到 pong，连接可能已死
+                    logger.warning('心跳超时，主动断开重连')
+                    await websocket.close()
+                    break
+            except Exception as e:
+                logger.warning(f'心跳发送失败: {e}')
+                break
     
     async def run(self):
         """主循环"""

@@ -1,6 +1,6 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends, File, UploadFile, Request, BackgroundTasks
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 from typing import Optional, List
 from pathlib import Path
@@ -143,6 +143,16 @@ def init_db():
             user_name TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             is_active BOOLEAN DEFAULT TRUE
+        )
+    ''')
+    
+    # 主人聊天表
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS owner_chats (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            role TEXT NOT NULL,
+            content TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
     
@@ -974,16 +984,23 @@ class ConnectionManager:
         portal_url = verify_api_key(api_key)
         logger.info(f"[WS] API Key verified, portal_url: {portal_url}")
         if portal_url:
-            self.active_connections[portal_url] = websocket
+            if portal_url not in self.active_connections:
+                self.active_connections[portal_url] = []
+            self.active_connections[portal_url].append(websocket)
             logger.info(f"[WS] Connection added for {portal_url}")
             logger.info(f"[WS] Active connections: {list(self.active_connections.keys())}")
         else:
             logger.info(f"[WS] API Key verification failed")
     
-    def disconnect(self, api_key: str):
-        portal_url = verify_api_key(api_key)
+    def disconnect(self, portal_url: str, websocket=None):
         if portal_url and portal_url in self.active_connections:
-            del self.active_connections[portal_url]
+            if websocket:
+                try:
+                    self.active_connections[portal_url].remove(websocket)
+                except ValueError:
+                    pass
+            if not self.active_connections[portal_url]:
+                del self.active_connections[portal_url]
     
     async def send_message(self, portal_url: str, message: dict):
         import logging
@@ -991,8 +1008,22 @@ class ConnectionManager:
         logger.info(f"[DEBUG] Trying to send to {portal_url}")
         logger.info(f"[DEBUG] Active connections: {list(self.active_connections.keys())}")
         if portal_url in self.active_connections:
-            await self.active_connections[portal_url].send_json(message)
-            logger.info(f"[DEBUG] Message sent to {portal_url}")
+            disconnected = []
+            for ws in self.active_connections[portal_url]:
+                try:
+                    await ws.send_json(message)
+                    logger.info(f"[DEBUG] Message sent to {portal_url}")
+                except Exception as e:
+                    logger.error(f"[DEBUG] Failed to send to {portal_url}: {e}")
+                    disconnected.append(ws)
+            # 清理失败的连接
+            for ws in disconnected:
+                try:
+                    self.active_connections[portal_url].remove(ws)
+                except ValueError:
+                    pass
+            if not self.active_connections[portal_url]:
+                del self.active_connections[portal_url]
         else:
             logger.info(f"[DEBUG] No active connection for {portal_url}")
             # 抛出异常，让调用者知道发送失败
@@ -1003,18 +1034,131 @@ class ConnectionManager:
         import logging
         logger = logging.getLogger(__name__)
         disconnected = []
-        for portal_url, websocket in self.active_connections.items():
-            try:
-                await websocket.send_json(message)
-                logger.info(f"[BROADCAST] Message sent to {portal_url}")
-            except Exception as e:
-                logger.error(f"[BROADCAST] Failed to send to {portal_url}: {e}")
-                disconnected.append(portal_url)
+        for portal_url, websockets in list(self.active_connections.items()):
+            for ws in websockets:
+                try:
+                    await ws.send_json(message)
+                    logger.info(f"[BROADCAST] Message sent to {portal_url}")
+                except Exception as e:
+                    logger.error(f"[BROADCAST] Failed to send to {portal_url}: {e}")
+                    disconnected.append((portal_url, ws))
         # 清理断开的连接
-        for portal_url in disconnected:
-            del self.active_connections[portal_url]
+        for portal_url, ws in disconnected:
+            if portal_url in self.active_connections:
+                try:
+                    self.active_connections[portal_url].remove(ws)
+                except ValueError:
+                    pass
+                if not self.active_connections[portal_url]:
+                    del self.active_connections[portal_url]
 
 manager = ConnectionManager()
+
+
+# ============ Owner Chat API (主人与 OpenClaw 对话) ============
+
+@app.post("/api/chat/owner/send")
+async def owner_send_message(request: Request):
+    """主人发送消息给 OpenClaw（存入数据库并通过 WebSocket 通知 Bridge）"""
+    try:
+        body = await request.json()
+        content = body.get("content", "").strip()
+        if not content:
+            return JSONResponse({"error": "消息不能为空"}, status_code=400)
+        
+        conn = sqlite3.connect(DATABASE_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO owner_chats (role, content) VALUES (?, ?)",
+            ("owner", content)
+        )
+        conn.commit()
+        message_id = cursor.lastrowid
+        conn.close()
+        
+        # 通过 WebSocket 通知 Bridge（Bridge 会转发给 OpenClaw）
+        my_portal = get_my_portal_url()
+        message = {
+            "type": "owner_message",
+            "content": content,
+            "message_id": message_id,
+            "from_portal": my_portal,
+            "created_at": get_now().isoformat()
+        }
+        await manager.broadcast(message)
+        
+        return JSONResponse({
+            "success": True,
+            "message_id": message_id,
+            "created_at": get_now().isoformat()
+        })
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Owner send failed: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.post("/api/chat/owner/reply")
+async def owner_reply_message(request: Request):
+    """OpenClaw 回复消息（通过 send.py 调用）"""
+    try:
+        body = await request.json()
+        content = body.get("content", "").strip()
+        if not content:
+            return JSONResponse({"error": "消息不能为空"}, status_code=400)
+        
+        conn = sqlite3.connect(DATABASE_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO owner_chats (role, content) VALUES (?, ?)",
+            ("agent", content)
+        )
+        conn.commit()
+        message_id = cursor.lastrowid
+        conn.close()
+        
+        # 通过 WebSocket 推送给网页前端
+        message = {
+            "type": "owner_reply",
+            "content": content,
+            "message_id": message_id,
+            "created_at": get_now().isoformat()
+        }
+        await manager.broadcast(message)
+        
+        return JSONResponse({
+            "success": True,
+            "message_id": message_id
+        })
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Owner reply failed: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/chat/owner/history")
+async def owner_chat_history(limit: int = 50):
+    """获取主人与 OpenClaw 的聊天记录"""
+    conn = sqlite3.connect(DATABASE_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT id, role, content, created_at FROM owner_chats ORDER BY id DESC LIMIT ?",
+        (limit,)
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    
+    messages = []
+    for row in rows:
+        messages.append({
+            "id": row[0],
+            "role": row[1],
+            "content": row[2],
+            "created_at": row[3]
+        })
+    messages.reverse()
+    return JSONResponse({"messages": messages})
+
 
 @app.websocket("/ws/agent")
 async def websocket_endpoint(websocket: WebSocket, api_key: str):
@@ -1097,7 +1241,7 @@ async def websocket_endpoint(websocket: WebSocket, api_key: str):
                     })
     
     except WebSocketDisconnect:
-        manager.disconnect(api_key)
+        manager.disconnect(portal_url, websocket)
 
 # 静态文件（管理后台）
 import os
@@ -1683,3 +1827,4 @@ async def verify_and_complete_transfer(file_id: str):
     finally:
         if conn:
             conn.close()
+

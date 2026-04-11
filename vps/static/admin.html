@@ -17,14 +17,26 @@
         .header {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
-            padding: 30px;
+            padding: 16px 20px;
             border-radius: 16px;
             margin-bottom: 24px;
             display: flex;
             justify-content: space-between;
             align-items: center;
         }
-        .header h1 { font-size: 28px; }
+        .header h1 { font-size: 16px; }
+        .header-center { font-size: 16px; }
+        .header .btn-home {
+            background: rgba(255,255,255,0.2);
+            color: white;
+            border: none;
+            padding: 6px 14px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+        }
+        .header .btn-home:hover { background: rgba(255,255,255,0.35); }
         .btn { 
             background: white; 
             color: #667eea; 
@@ -139,12 +151,13 @@
         @media (max-width: 768px) {
             body { padding: 12px; }
             .header { 
-                padding: 20px; 
-                flex-direction: column; 
-                gap: 16px;
-                text-align: center;
+                padding: 12px 16px; 
+                flex-direction: row;
+                justify-content: space-between;
             }
-            .header h1 { font-size: 22px; }
+            .header h1 { font-size: 14px; }
+            .header-center { font-size: 14px; }
+            .btn-home { font-size: 13px; }
             .tabs {
                 flex-wrap: wrap;
                 gap: 6px;
@@ -177,7 +190,7 @@
         
         /* 小屏幕手机 */
         @media (max-width: 480px) {
-            .header h1 { font-size: 18px; }
+            .header h1 { font-size: 13px; }
             .btn { padding: 8px 16px; font-size: 13px; }
             .tab { padding: 6px 10px; font-size: 12px; }
             .card { padding: 12px; border-radius: 12px; }
@@ -352,21 +365,28 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>🔐 Agent P2P 管理后台</h1>
-            <button class="btn" onclick="location.href='/'">🏠 返回首页</button>
+            <div class="header-center">Agent P2P</div>
+            <button class="btn-home" onclick="location.href='/'">返回首页</button>
         </div>
         
         <div class="tabs">
-            <div class="tab active" onclick="switchTab('guest')">📨 留言</div>
+            <div class="tab active" onclick="switchTab('chat')">💬 聊天</div>
             <div class="tab" onclick="switchTab('contacts')">👥 联系人</div>
             <div class="tab" onclick="switchTab('myinfo')">⚙️ 我的信息</div>
+            <div class="tab" onclick="switchTab('guest')">📨 留言</div>
         </div>
         
-        <!-- 留言 -->
-        <div id="tab-guest" class="card">
-            <h2>📨 收到的留言</h2>
-            <div id="guest-list">
-                <div class="empty-state">暂无留言</div>
+        <!-- 与 OpenClaw 聊天 -->
+        <div id="tab-chat" class="card">
+            <h2>💬 与 OpenClaw 聊天</h2>
+            <div class="chat-container" style="display: flex; flex-direction: column; height: 500px;">
+                <div class="message-list" id="owner-chat-messages" style="flex: 1; overflow-y: auto; background: #f5f5f5; padding: 16px; border-radius: 12px; margin-bottom: 16px;">
+                    <div class="empty-state">加载中...</div>
+                </div>
+                <div class="chat-input-area" style="display: flex; gap: 12px; align-items: center;">
+                    <input type="text" id="owner-chat-input" placeholder="输入消息..." style="flex: 1; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px;" onkeypress="if(event.key==='Enter')sendOwnerMessage()">
+                    <button class="btn-small btn-approve" onclick="sendOwnerMessage()" style="padding: 12px 24px;">发送</button>
+                </div>
             </div>
         </div>
         
@@ -387,6 +407,14 @@
             </div>
         </div>
         
+        <!-- 留言 -->
+        <div id="tab-guest" class="card hidden">
+            <h2>📨 收到的留言</h2>
+            <div id="guest-list">
+                <div class="empty-state">暂无留言</div>
+            </div>
+        </div>
+
         <!-- 我的信息 -->
         <div id="tab-myinfo" class="card hidden">
             <h2>⚙️ 我的 Portal 信息</h2>
@@ -452,31 +480,187 @@
     </div>
 
     <script>
-        let currentTab = 'guest';
+        let currentTab = 'chat';
         let contacts = [];
         let selectedContact = null;
         let guestMessages = [];
         let guestPage = 1;
         const GUEST_PAGE_SIZE = 10;
         
+        // WebSocket 连接
+        let ownerChatWs = null;
+        let ownerChatApiKey = null;
+        
         document.addEventListener('DOMContentLoaded', () => {
             loadGuestMessages();
             loadContacts();
             loadMyInfo();
+            loadOwnerChatHistory();
+            initOwnerChatWebSocket();
             setInterval(() => {
                 loadGuestMessages();
                 if (selectedContact) loadContactMessages(selectedContact.id);
+                if (currentTab === 'chat') loadOwnerChatHistory();
             }, 10000);
         });
+        
+        // 初始化 WebSocket 连接
+        async function initOwnerChatWebSocket() {
+            try {
+                // 先获取 API key
+                const res = await fetch('/api/portal/info');
+                const data = await res.json();
+                ownerChatApiKey = data.api_key || data.SHARED_KEY;
+                
+                if (!ownerChatApiKey) {
+                    console.log('未获取到 API key，WebSocket 连接失败');
+                    return;
+                }
+                
+                const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const wsUrl = `${wsProtocol}//${window.location.host}/ws/agent?api_key=${ownerChatApiKey}`;
+                
+                ownerChatWs = new WebSocket(wsUrl);
+                
+                ownerChatWs.onopen = () => {
+                    console.log('Owner chat WebSocket connected');
+                };
+                
+                ownerChatWs.onmessage = (event) => {
+                    try {
+                        const msg = JSON.parse(event.data);
+                        if (msg.type === 'owner_reply') {
+                            // 收到 Agent 回复，追加到消息列表
+                            appendOwnerChatMessage({
+                                role: 'agent',
+                                content: msg.content,
+                                created_at: new Date().toISOString()
+                            });
+                        }
+                    } catch (e) {
+                        console.error('WebSocket message parse error:', e);
+                    }
+                };
+                
+                ownerChatWs.onclose = () => {
+                    console.log('Owner chat WebSocket closed, reconnecting in 5s...');
+                    setTimeout(initOwnerChatWebSocket, 5000);
+                };
+                
+                ownerChatWs.onerror = (error) => {
+                    console.error('WebSocket error:', error);
+                };
+            } catch (e) {
+                console.error('初始化 WebSocket 失败:', e);
+            }
+        }
+        
+        // 加载 Owner 聊天历史
+        function isNearBottom(container) {
+            const threshold = 100;
+            return container.scrollHeight - container.scrollTop - container.clientHeight < threshold;
+        }
+
+        async function loadOwnerChatHistory() {
+            try {
+                const res = await fetch('/api/chat/owner/history');
+                const data = await res.json();
+                const messages = data.messages || [];
+                
+                const container = document.getElementById('owner-chat-messages');
+                if (!container) return;
+                
+                const wasNearBottom = container.scrollHeight === 0 || isNearBottom(container);
+                
+                if (messages.length === 0) {
+                    container.innerHTML = '<div class="empty-state">💬 暂无消息，开始聊天吧</div>';
+                    return;
+                }
+                
+                // 消息已经是最旧在前（API端已reverse）
+                container.innerHTML = messages.map(m => `
+                    <div class="message-bubble ${m.role === 'owner' ? 'sent' : 'received'}">
+                        <div>${escapeHtml(m.content)}</div>
+                        <div class="message-time">${formatTime(m.created_at)}</div>
+                    </div>
+                `).join('');
+                
+                // 只有当用户本来就在底部时才自动滚动
+                if (wasNearBottom) {
+                    container.scrollTop = container.scrollHeight;
+                }
+            } catch (e) {
+                console.error('加载聊天历史失败:', e);
+                const container = document.getElementById('owner-chat-messages');
+                if (container) {
+                    container.innerHTML = '<div class="empty-state">❌ 加载失败，请重试</div>';
+                }
+            }
+        }
+        
+        // 发送 Owner 消息
+        async function sendOwnerMessage() {
+            const input = document.getElementById('owner-chat-input');
+            const content = input.value.trim();
+            
+            if (!content) return;
+            
+            try {
+                const res = await fetch('/api/chat/owner/send', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({content})
+                });
+                
+                if (res.ok) {
+                    input.value = '';
+                    // 发送成功后立即刷新历史
+                    loadOwnerChatHistory();
+                } else {
+                    const error = await res.text();
+                    alert('发送失败: ' + error);
+                }
+            } catch (e) {
+                console.error('发送消息失败:', e);
+                alert('发送失败: ' + e.message);
+            }
+        }
+        
+        // 追加单条消息到聊天列表
+        function appendOwnerChatMessage(msg) {
+            const container = document.getElementById('owner-chat-messages');
+            if (!container) return;
+            
+            // 如果当前是空状态，清空容器
+            if (container.querySelector('.empty-state')) {
+                container.innerHTML = '';
+            }
+            
+            const bubble = document.createElement('div');
+            bubble.className = `message-bubble ${msg.role === 'owner' ? 'sent' : 'received'}`;
+            bubble.innerHTML = `
+                <div>${escapeHtml(msg.content)}</div>
+                <div class="message-time">${formatTime(msg.created_at)}</div>
+            `;
+            
+            container.appendChild(bubble);
+            // 新消息始终滚动到底部
+            container.scrollTop = container.scrollHeight;
+        }
         
         function switchTab(tab) {
             currentTab = tab;
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             event.target.classList.add('active');
-            ['guest', 'contacts', 'myinfo'].forEach(t => {
+            ['guest', 'contacts', 'myinfo', 'chat'].forEach(t => {
                 document.getElementById(`tab-${t}`).classList.add('hidden');
             });
             document.getElementById(`tab-${tab}`).classList.remove('hidden');
+            
+            // 切换到聊天tab时加载历史消息
+            if (tab === 'chat') {
+                loadOwnerChatHistory();
+            }
         }
         
         // 加载留言
