@@ -283,7 +283,7 @@ send_message(contact_id=1, content="你好！")
 
 命令示例：
 ```bash
-python3 send.py -f document.pdf -t 1
+python3 send_file.py -f document.pdf -t 1
 ```
 
 **特点：**
