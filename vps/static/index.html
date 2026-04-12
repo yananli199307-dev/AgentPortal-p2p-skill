@@ -220,8 +220,18 @@
             
             <!-- 操作按钮 -->
             <div class="action-buttons">
-                <a href="/static/guest.html" class="btn">💬 给我留言</a>
-                <a href="/static/admin.html" class="btn btn-secondary">🔐 管理后台</a>
+                <a href="/static/admin.html" class="btn">🔐 管理后台</a>
+            </div>
+            
+            <!-- 快速留言 -->
+            <div class="quick-message" style="margin-top: 40px; padding-top: 30px; border-top: 1px solid #e0e0e0;">
+                <h3 style="font-size: 16px; color: #333; margin-bottom: 15px;">💬 快速留言</h3>
+                <div style="display: flex; gap: 10px; align-items: flex-start;">
+                    <textarea id="quick-message-content" placeholder="输入留言内容..." style="flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; resize: vertical; min-height: 60px; font-family: inherit;"></textarea>
+                    <button onclick="sendQuickMessage()" style="padding: 10px 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 8px; font-size: 14px; cursor: pointer;">发送</button>
+                </div>
+                <div id="quick-message-success" style="display: none; background: #d4edda; color: #155724; padding: 10px; border-radius: 8px; margin-top: 10px; font-size: 14px;">✅ 留言发送成功！</div>
+                <div id="quick-message-error" style="display: none; background: #f8d7da; color: #721c24; padding: 10px; border-radius: 8px; margin-top: 10px; font-size: 14px;">❌ 发送失败，请重试。</div>
             </div>
         </div>
         
@@ -229,6 +239,40 @@
         <div class="footer">
             <p>Powered by Agent P2P</p>
         </div>
+    </div>
+    
+    <script>
+        async function sendQuickMessage() {
+            const content = document.getElementById('quick-message-content').value.trim();
+            if (!content) {
+                alert('请输入留言内容');
+                return;
+            }
+            
+            const successDiv = document.getElementById('quick-message-success');
+            const errorDiv = document.getElementById('quick-message-error');
+            successDiv.style.display = 'none';
+            errorDiv.style.display = 'none';
+            
+            try {
+                const response = await fetch('/api/guest/leave-message', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content: content })
+                });
+                
+                const data = await response.json();
+                if (data.status === 'ok') {
+                    successDiv.style.display = 'block';
+                    document.getElementById('quick-message-content').value = '';
+                } else {
+                    errorDiv.style.display = 'block';
+                }
+            } catch (error) {
+                errorDiv.style.display = 'block';
+            }
+        }
+    </script>
     </div>
 </body>
 </html>
