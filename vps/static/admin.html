@@ -492,7 +492,8 @@
 
         function formatTime(timeStr) {
             if (!timeStr) return '';
-            return new Date(timeStr).toLocaleString('zh-CN');
+            const date = new Date(timeStr);
+            return date.toLocaleString('zh-CN', {timeZone: 'Asia/Shanghai'});
         }
     </script>
 </body>
