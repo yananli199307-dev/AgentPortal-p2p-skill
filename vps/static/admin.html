@@ -492,8 +492,10 @@
 
         function formatTime(timeStr) {
             if (!timeStr) return '';
+            // 假设数据库时间是 UTC，加 8 小时转为北京时间
             const date = new Date(timeStr);
-            return date.toLocaleString('zh-CN', {timeZone: 'Asia/Shanghai'});
+            const beijingTime = new Date(date.getTime() + 8 * 60 * 60 * 1000);
+            return beijingTime.toLocaleString('zh-CN');
         }
     </script>
 </body>
