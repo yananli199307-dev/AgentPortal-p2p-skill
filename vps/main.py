@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends, File, UploadFile, Request, BackgroundTasks
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends, File, UploadFile, Request, BackgroundTasks, Header
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
@@ -1894,8 +1894,19 @@ PHOTOS_DIR = Path("./data/photos")
 PHOTOS_DIR.mkdir(parents=True, exist_ok=True)
 
 @app.post("/api/photos/upload")
-async def upload_photo(photo: UploadFile = File(...)):
-    """上传照片"""
+async def upload_photo(
+    photo: UploadFile = File(...),
+    x_api_key: str = Header(None, alias="X-API-Key")
+):
+    """上传照片 - 需要 API Key 验证（仅 Agent 可上传）"""
+    # 验证 API Key
+    if not x_api_key:
+        raise HTTPException(status_code=401, detail="缺少 API Key")
+    
+    portal_url = verify_api_key(x_api_key)
+    if not portal_url:
+        raise HTTPException(status_code=403, detail="无效的 API Key")
+    
     try:
         # 生成唯一文件名
         file_ext = Path(photo.filename).suffix.lower()
