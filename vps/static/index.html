@@ -170,16 +170,64 @@
         
         /* 移动端适配 */
         @media (max-width: 768px) {
-            .header h1 { font-size: 28px; }
-            .main-card { padding: 20px; }
-            .photo-grid { grid-template-columns: repeat(2, 1fr); }
-            .action-buttons {
-                flex-direction: column;
+            .container { padding: 12px; }
+            .header { padding: 30px 16px; }
+            .header h1 { font-size: 24px; }
+            .header p { font-size: 14px; }
+            .header-admin-btn {
+                top: 12px;
+                right: 12px;
+                padding: 6px 12px;
+                font-size: 12px;
             }
-            .btn {
-                width: 100%;
-                text-align: center;
+            .main-card { 
+                padding: 16px; 
+                border-radius: 12px;
+                margin-bottom: 12px;
             }
+            .section-title {
+                font-size: 16px;
+                margin-bottom: 12px;
+                padding-bottom: 8px;
+            }
+            .news-item {
+                padding: 12px;
+            }
+            .recommend-grid {
+                grid-template-columns: 1fr;
+            }
+            .photo-grid { 
+                grid-template-columns: repeat(2, 1fr); 
+                gap: 8px;
+            }
+            .quick-message {
+                margin-top: 24px !important;
+                padding-top: 20px !important;
+            }
+            .quick-message h3 {
+                font-size: 14px !important;
+            }
+            .quick-message textarea {
+                min-height: 80px;
+                font-size: 16px; /* 防止 iOS 缩放 */
+            }
+            .quick-message button {
+                padding: 12px 16px;
+                font-size: 14px;
+            }
+            .footer {
+                padding: 16px;
+                font-size: 12px;
+            }
+        }
+        
+        /* 触摸优化 */
+        .btn, .quick-message textarea, .quick-message button, .header-admin-btn {
+            -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
+        }
+        .btn:active, .quick-message button:active {
+            transform: scale(0.98);
         }
     </style>
 </head>
