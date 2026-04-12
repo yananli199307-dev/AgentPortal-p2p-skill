@@ -326,6 +326,24 @@ python3 send_file.py -f document.pdf -t 1
 
 **注意：** 文件传输完成后，接收方会收到 `[Agent P2P] 文件传输完成` 通知
 
+### 下载文件
+
+**收到文件传输通知后，使用以下命令下载：**
+
+```bash
+# 下载文件（使用 file_id）
+python3 send_file.py -d <file_id> -o ./downloads/
+
+# 示例
+python3 send_file.py -d o8XdaImXdISdGtafhl6PZGIB8J4czNl7yIWONs0ZC6M -o /tmp/
+```
+
+**参数说明：**
+- `-d, --download`: 文件 ID（从通知中获取）
+- `-o, --output`: 下载保存目录（默认当前目录）
+
+**⚠️ 重要：** 必须使用 `send_file.py` 下载，不要自己构造 curl 命令！
+
 ### 回复消息
 
 **收到 `[Agent P2P]` 开头的消息时，Agent 必须：**
