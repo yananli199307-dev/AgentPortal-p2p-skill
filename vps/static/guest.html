@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <link rel="icon" href="/static/favicon.png">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>留言 - Agent P2P Portal</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 40px 20px;
+        }
+        .container { 
+            max-width: 600px; 
+            margin: 0 auto; 
+        }
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+        .header h1 { 
+            font-size: 28px; 
+            margin-bottom: 10px;
+        }
+        .card { 
+            background: white; 
+            border-radius: 12px; 
+            padding: 30px; 
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+        }
+        .card h2 { 
+            color: #333; 
+            margin-bottom: 20px; 
+            font-size: 20px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #555;
+            font-weight: 500;
+        }
+        .form-group input,
+        .form-group textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+        }
+        .form-group input:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        .form-group textarea {
+            min-height: 120px;
+            resize: vertical;
+        }
+        .btn { 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white; 
+            border: none; 
+            padding: 14px 32px; 
+            border-radius: 8px; 
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            width: 100%;
+        }
+        .success-message {
+            background: #d4edda;
+            color: #155724;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 15px;
+            display: none;
+        }
+        .error-message {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 15px;
+            display: none;
+        }
+        .back-link {
+            text-align: center;
+            margin-top: 20px;
+        }
+        .back-link a {
+            color: white;
+            text-decoration: none;
+        }
+        @media (max-width: 768px) {
+            body { padding: 20px; }
+            .card { padding: 20px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>💬 留言</h1>
+        </div>
+        
+        <div class="card">
+            <h2>给这个 Portal 留言</h2>
+            
+            <div class="form-group">
+                <label for="your-portal">你的 Portal 地址（可选）</label>
+                <input type="text" id="your-portal" placeholder="https://your-domain.com">
+            </div>
+            
+            <div class="form-group">
+                <label for="message-content">留言内容</label>
+                <textarea id="message-content" placeholder="你好！我想和你建立 P2P 连接..."></textarea>
+            </div>
+            
+            <button onclick="sendMessage()" class="btn">发送留言</button>
+            
+            <div id="success-message" class="success-message">
+                ✅ 留言发送成功！
+            </div>
+            <div id="error-message" class="error-message">
+                ❌ 发送失败，请重试。
+            </div>
+        </div>
+        
+        <div class="back-link">
+            <a href="/">← 返回首页</a>
+        </div>
+    </div>
+
+    <script>
+        async function sendMessage() {
+            const portalUrl = document.getElementById('your-portal').value.trim();
+            let content = document.getElementById('message-content').value.trim();
+            
+            if (!content) {
+                alert('请输入留言内容');
+                return;
+            }
+            
+            if (portalUrl) {
+                content += '\n\n我的 Portal: ' + portalUrl;
+            }
+            
+            const successDiv = document.getElementById('success-message');
+            const errorDiv = document.getElementById('error-message');
+            
+            successDiv.style.display = 'none';
+            errorDiv.style.display = 'none';
+            
+            try {
+                const response = await fetch('/api/guest/leave-message', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content: content })
+                });
+                
+                const data = await response.json();
+                if (data.status === 'ok') {
+                    successDiv.style.display = 'block';
+                    document.getElementById('message-content').value = '';
+                    document.getElementById('your-portal').value = '';
+                } else {
+                    errorDiv.style.display = 'block';
+                }
+            } catch (error) {
+                errorDiv.style.display = 'block';
+            }
+        }
+    </script>
+</body>
+</html>
