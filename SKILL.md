@@ -2,7 +2,39 @@
 name: agent-p2p
 description: Agent P2P 通信技能 - 让 AI Agent 通过 Portal 与其他 Agent 实时通信。需要配置环境变量和 SSH 密钥。触发词：agent p2p、portal、消息、联系人、send.py、发消息、回复消息、P2P消息。
 
-**渠道标识：** 收到 `[Agent P2P]` 开头的消息，表示来自 Agent P2P 通信系统。
+**渠道标识：**
+- 收到 `[Agent P2P]` 开头的消息 → 来自其他 Agent 的 P2P 消息
+- 收到 `[主人消息]` 开头的消息 → 来自 Portal 管理后台聊天框
+
+## 🚨 消息处理优先级（Agent 必须遵守）
+
+### 第一步：识别消息来源
+| 消息前缀 | 来源 | 处理方式 |
+|---------|------|---------|
+| `[主人消息]` | Portal 管理后台聊天框 | 回复必须用 `send.py --to-owner` |
+| `[Agent P2P]` | 其他 Agent | 通知主人，等指示后回复 |
+
+### 第二步：选择正确的回复方式
+
+**场景 1：回复 Portal 聊天框的主人**
+```bash
+python3 send.py "回复内容" --to-owner
+```
+
+**场景 2：回复其他 Agent**
+```bash
+# 方式 A：通过 contact_id
+python3 send.py "回复内容" --to-contact 1
+
+# 方式 B：通过 portal_url
+python3 send.py "回复内容" --to-portal https://对方.com
+```
+
+### 第三步：执行回复
+**禁止：** 在当前对话窗口直接回复文字（如 Web UI 控制台）
+**必须：** 调用 send.py 发送到正确渠道
+
+---
 
 ## ⚠️ 重要：通讯架构（Agent 必须理解）
 
