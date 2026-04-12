@@ -152,7 +152,7 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             role TEXT NOT NULL,
             content TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            created_at TEXT
         )
     ''')
     
@@ -1128,8 +1128,8 @@ async def owner_send_message(request: Request, token: str = Depends(get_token)):
         conn = sqlite3.connect(DATABASE_PATH)
         cursor = conn.cursor()
         cursor.execute(
-            "INSERT INTO owner_chats (role, content) VALUES (?, ?)",
-            ("owner", content)
+            "INSERT INTO owner_chats (role, content, created_at) VALUES (?, ?, ?)",
+            ("owner", content, get_now())
         )
         conn.commit()
         message_id = cursor.lastrowid
@@ -1169,8 +1169,8 @@ async def owner_reply_message(request: Request):
         conn = sqlite3.connect(DATABASE_PATH)
         cursor = conn.cursor()
         cursor.execute(
-            "INSERT INTO owner_chats (role, content) VALUES (?, ?)",
-            ("agent", content)
+            "INSERT INTO owner_chats (role, content, created_at) VALUES (?, ?, ?)",
+            ("agent", content, get_now())
         )
         conn.commit()
         message_id = cursor.lastrowid
