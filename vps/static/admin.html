@@ -99,6 +99,10 @@
                         <div class="empty-state">加载中...</div>
                     </div>
                     <div class="chat-input-area" style="display: flex; gap: 8px; align-items: center; margin: 0;">
+                        <label for="owner-file-input" style="cursor: pointer; padding: 8px; background: #f0f0f0; border-radius: 8px; height: 40px; display: flex; align-items: center; justify-content: center;" title="发送文件">
+                            📎
+                        </label>
+                        <input type="file" id="owner-file-input" style="display: none;" onchange="sendOwnerFile(this)">
                         <textarea id="owner-chat-input" placeholder="输入消息..." style="flex: 1; padding: 8px 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; resize: none; height: 40px; min-height: 40px; max-height: 40px; line-height: 24px; font-family: inherit; box-sizing: border-box;" onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault();sendOwnerMessage();}"></textarea>
                         <button onclick="sendOwnerMessage()" style="padding: 8px 16px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; height: 40px; box-sizing: border-box;">发送</button>
                     </div>
@@ -288,6 +292,47 @@
                     loadOwnerChatHistory();
                 } else alert('发送失败');
             } catch (e) {}
+        }
+
+        // 发送文件
+        async function sendOwnerFile(input) {
+            const file = input.files[0];
+            if (!file) return;
+
+            const maxSize = 10 * 1024 * 1024; // 10MB
+            if (file.size > maxSize) {
+                alert('文件大小不能超过 10MB');
+                input.value = '';
+                return;
+            }
+
+            try {
+                const formData = new FormData();
+                formData.append('file', file);
+
+                const res = await fetch('/api/chat/owner/upload', {
+                    method: 'POST',
+                    headers: authHeaders(),
+                    body: formData
+                });
+
+                const data = await res.json();
+                if (res.ok && data.status === 'ok') {
+                    // 发送文件消息
+                    const fileMsg = `[文件] ${file.name}\n${data.url}`;
+                    await fetch('/api/chat/owner/send', {
+                        method: 'POST',
+                        headers: {...authHeaders(), 'Content-Type': 'application/json'},
+                        body: JSON.stringify({content: fileMsg})
+                    });
+                    loadOwnerChatHistory();
+                } else {
+                    alert('上传失败: ' + (data.detail || '未知错误'));
+                }
+            } catch (e) {
+                alert('上传失败');
+            }
+            input.value = '';
         }
 
         function appendOwnerChatMessage(msg) {

@@ -1219,6 +1219,43 @@ async def owner_chat_history(limit: int = 50, token: str = Depends(get_token)):
     return JSONResponse({"messages": messages})
 
 
+# 主人聊天文件上传目录
+OWNER_FILES_DIR = Path("./data/owner_files")
+OWNER_FILES_DIR.mkdir(parents=True, exist_ok=True)
+
+@app.post("/api/chat/owner/upload")
+async def owner_upload_file(
+    file: UploadFile = File(...),
+    token: str = Depends(get_token)
+):
+    """主人上传文件到聊天"""
+    try:
+        # 检查文件大小 (10MB)
+        content = await file.read()
+        if len(content) > 10 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="文件大小不能超过 10MB")
+        
+        # 生成唯一文件名
+        file_ext = Path(file.filename).suffix.lower()
+        safe_name = f"{secrets.token_urlsafe(8)}{file_ext}"
+        file_path = OWNER_FILES_DIR / safe_name
+        
+        # 保存文件
+        with open(file_path, "wb") as f:
+            f.write(content)
+        
+        return JSONResponse({
+            "status": "ok",
+            "url": f"/static/owner_files/{safe_name}",
+            "filename": file.filename
+        })
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# 挂载主人文件目录
+app.mount("/static/owner_files", StaticFiles(directory=str(OWNER_FILES_DIR)), name="owner_files")
+
+
 @app.websocket("/ws/agent")
 async def websocket_endpoint(websocket: WebSocket, api_key: str):
     await manager.connect(websocket, api_key)
