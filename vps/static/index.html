@@ -276,14 +276,11 @@
             <!-- 家人合照 -->
             <div class="section">
                 <h2 class="section-title">👨‍👩‍👧‍👦 家人</h2>
-                <div class="photo-grid">
-                    <div class="photo-item">照片 1</div>
-                    <div class="photo-item">照片 2</div>
-                    <div class="photo-item">照片 3</div>
-                    <div class="photo-item">照片 4</div>
-                    <div class="photo-item">照片 5</div>
-                    <div class="photo-item">照片 6</div>
+                <div class="photo-grid" id="photo-grid">
+                    <div class="photo-item" onclick="document.getElementById('photo-upload').click()" style="cursor: pointer; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; font-size: 24px;">+</div>
                 </div>
+                <input type="file" id="photo-upload" accept="image/*" style="display: none;" onchange="uploadPhoto(this)">
+                <div id="photo-upload-status" style="margin-top: 10px; font-size: 14px;"></div>
             </div>
             
             <!-- 快速留言 -->
@@ -335,6 +332,68 @@
                 errorDiv.style.display = 'block';
             }
         }
+        
+        // 上传照片
+        async function uploadPhoto(input) {
+            const file = input.files[0];
+            if (!file) return;
+            
+            const statusDiv = document.getElementById('photo-upload-status');
+            statusDiv.textContent = '上传中...';
+            
+            const formData = new FormData();
+            formData.append('photo', file);
+            
+            try {
+                const response = await fetch('/api/photos/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                if (data.status === 'ok') {
+                    statusDiv.textContent = '✅ 上传成功';
+                    // 添加新照片到网格
+                    const grid = document.getElementById('photo-grid');
+                    const newPhoto = document.createElement('div');
+                    newPhoto.className = 'photo-item';
+                    newPhoto.style.backgroundImage = `url(${data.url})`;
+                    newPhoto.style.backgroundSize = 'cover';
+                    newPhoto.style.backgroundPosition = 'center';
+                    grid.insertBefore(newPhoto, grid.firstChild);
+                } else {
+                    statusDiv.textContent = '❌ 上传失败: ' + (data.detail || '未知错误');
+                }
+            } catch (error) {
+                statusDiv.textContent = '❌ 上传失败';
+            }
+            
+            input.value = '';
+        }
+        
+        // 加载已有照片
+        async function loadPhotos() {
+            try {
+                const response = await fetch('/api/photos/list');
+                const data = await response.json();
+                if (data.photos && data.photos.length > 0) {
+                    const grid = document.getElementById('photo-grid');
+                    data.photos.forEach(photo => {
+                        const div = document.createElement('div');
+                        div.className = 'photo-item';
+                        div.style.backgroundImage = `url(${photo.url})`;
+                        div.style.backgroundSize = 'cover';
+                        div.style.backgroundPosition = 'center';
+                        grid.insertBefore(div, grid.firstChild);
+                    });
+                }
+            } catch (error) {
+                console.error('加载照片失败:', error);
+            }
+        }
+        
+        // 页面加载时加载照片
+        loadPhotos();
     </script>
     </div>
 </body>

@@ -1886,3 +1886,71 @@ async def verify_and_complete_transfer(file_id: str):
     finally:
         if conn:
             conn.close()
+
+
+# ==================== 照片管理 API ====================
+
+PHOTOS_DIR = Path("./data/photos")
+PHOTOS_DIR.mkdir(parents=True, exist_ok=True)
+
+@app.post("/api/photos/upload")
+async def upload_photo(photo: UploadFile = File(...)):
+    """上传照片"""
+    try:
+        # 生成唯一文件名
+        file_ext = Path(photo.filename).suffix.lower()
+        if file_ext not in ['.jpg', '.jpeg', '.png', '.gif', '.webp']:
+            raise HTTPException(status_code=400, detail="不支持的图片格式")
+        
+        file_name = f"{secrets.token_urlsafe(16)}{file_ext}"
+        file_path = PHOTOS_DIR / file_name
+        
+        # 保存文件
+        with open(file_path, "wb") as f:
+            content = await photo.read()
+            f.write(content)
+        
+        # 保存到数据库
+        conn = sqlite3.connect(DATABASE_PATH)
+        cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS photos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                filename TEXT NOT NULL,
+                url TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        cursor.execute('''
+            INSERT INTO photos (filename, url) VALUES (?, ?)
+        ''', (file_name, f"/static/photos/{file_name}"))
+        conn.commit()
+        conn.close()
+        
+        return {"status": "ok", "url": f"/static/photos/{file_name}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/photos/list")
+async def list_photos():
+    """获取照片列表"""
+    try:
+        conn = sqlite3.connect(DATABASE_PATH)
+        cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS photos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                filename TEXT NOT NULL,
+                url TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        cursor.execute('SELECT url FROM photos ORDER BY created_at DESC')
+        photos = [{"url": row[0]} for row in cursor.fetchall()]
+        conn.close()
+        return {"photos": photos}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# 挂载照片目录
+app.mount("/static/photos", StaticFiles(directory=str(PHOTOS_DIR)), name="photos")
