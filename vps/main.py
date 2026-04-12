@@ -21,8 +21,8 @@ DATABASE_PATH = os.getenv("DATABASE_PATH", "./data/portal.db")
 TZ = pytz.timezone('Asia/Shanghai')
 
 def get_now():
-    """获取当前北京时间"""
-    return datetime.now(TZ)
+    """获取当前北京时间，返回带时区的ISO格式字符串"""
+    return datetime.now(TZ).isoformat()
 
 def format_datetime(dt):
     """格式化日期时间为北京时间字符串"""
@@ -355,7 +355,7 @@ async def notify_openclaw(content: str, message_type: str = "guest_message"):
             await manager.send_message(my_portal, {
                 "type": message_type,
                 "content": content,
-                "timestamp": get_now().isoformat()
+                "timestamp": get_now()
             })
             print(f"[OpenClaw Notify] Real-time notification sent to {my_portal}")
         except Exception as e:
@@ -373,7 +373,7 @@ async def leave_message(request: GuestMessageRequest, request_obj: Request):
     cursor.execute('''
         INSERT INTO guest_messages (content, ip_address, user_agent, created_at)
         VALUES (?, ?, ?, ?)
-    ''', (request.content, request_obj.client.host, request_obj.headers.get("user-agent"), get_now().strftime('%Y-%m-%d %H:%M:%S')))
+    ''', (request.content, request_obj.client.host, request_obj.headers.get("user-agent"), get_now()))
     
     message_id = cursor.lastrowid
     conn.commit()
@@ -384,7 +384,7 @@ async def leave_message(request: GuestMessageRequest, request_obj: Request):
         "type": "new_guest_message",
         "message_id": message_id,
         "content": request.content,
-        "created_at": get_now().isoformat(),
+        "created_at": get_now(),
         "requires_approval": True  # 标记需要主人审批
     })
     
@@ -491,7 +491,7 @@ async def approve_guest_message(message_id: int, request: Request, token: str = 
         agent_name,
         user_name,
         SHARED_KEY,
-        get_now().strftime('%Y-%m-%d %H:%M:%S')
+        get_now()
     ))
     
     # 更新留言状态为 approved
@@ -524,7 +524,7 @@ async def create_api_key(request: ApiKeyCreateRequest):
     cursor.execute('''
         INSERT INTO api_keys (key_id, portal_url, agent_name, user_name, created_at, is_active)
         VALUES (?, ?, ?, ?, ?, TRUE)
-    ''', (api_key, request.portal_url, request.agent_name, request.user_name, get_now().strftime('%Y-%m-%d %H:%M:%S')))
+    ''', (api_key, request.portal_url, request.agent_name, request.user_name, get_now()))
     
     conn.commit()
     conn.close()
@@ -596,14 +596,14 @@ async def exchange_api_key(request: ApiKeyExchangeRequest):
     cursor.execute('''
         INSERT INTO api_keys (key_id, portal_url, agent_name, created_at, is_active)
         VALUES (?, ?, ?, ?, TRUE)
-    ''', (SHARED_KEY, request.portal_url, "friend", get_now().strftime('%Y-%m-%d %H:%M:%S')))
+    ''', (SHARED_KEY, request.portal_url, "friend", get_now()))
     
     # 保存联系人关系
     cursor.execute('''
         INSERT OR REPLACE INTO contacts 
         (portal_url, api_key, SHARED_KEY, is_verified, created_at)
         VALUES (?, ?, ?, TRUE, ?)
-    ''', (request.portal_url, SHARED_KEY, request.SHARED_KEY, get_now().strftime('%Y-%m-%d %H:%M:%S')))
+    ''', (request.portal_url, SHARED_KEY, request.SHARED_KEY, get_now()))
     
     conn.commit()
     conn.close()
@@ -714,7 +714,7 @@ async def send_message(request: SendMessageRequest, background_tasks: Background
     cursor.execute('''
         INSERT INTO messages (from_portal, to_portal, content, message_type, sender_api_key, created_at)
         VALUES (?, ?, ?, ?, ?, ?)
-    ''', (my_portal, to_portal, request.content, request.message_type, SHARED_KEY, get_now().strftime('%Y-%m-%d %H:%M:%S')))
+    ''', (my_portal, to_portal, request.content, request.message_type, SHARED_KEY, get_now()))
     
     message_id = cursor.lastrowid
     conn.commit()
@@ -728,7 +728,7 @@ async def send_message(request: SendMessageRequest, background_tasks: Background
         "api_key": SHARED_KEY,  # 让对方可以用此验证我的身份
         "content": request.content,
         "message_type": request.message_type,
-        "created_at": get_now().isoformat()
+        "created_at": get_now()
     })
     
     return {"status": "delivered", "message_id": message_id}
@@ -774,7 +774,7 @@ async def receive_message(request: ReceiveMessageRequest, background_tasks: Back
         cursor.execute('''
             INSERT INTO messages (from_portal, to_portal, content, message_type, sender_api_key, created_at)
             VALUES (?, ?, ?, ?, ?, ?)
-        ''', (request.from_portal, my_portal, request.content, request.message_type, request.api_key, get_now().strftime('%Y-%m-%d %H:%M:%S')))
+        ''', (request.from_portal, my_portal, request.content, request.message_type, request.api_key, get_now()))
         
         message_id = cursor.lastrowid
         conn.commit()
@@ -787,7 +787,7 @@ async def receive_message(request: ReceiveMessageRequest, background_tasks: Back
             "from_name": from_name,
             "content": request.content,
             "message_type": request.message_type,
-            "created_at": get_now().isoformat()
+            "created_at": get_now()
         })
         
         return {"status": "received", "message_id": message_id}
@@ -898,7 +898,7 @@ async def create_contact(request: CreateContactRequest, token: str = Depends(get
         request.agent_name,
         request.user_name,
         request.SHARED_KEY or generate_api_key(),  # 自动生成共享Key
-        get_now().strftime('%Y-%m-%d %H:%M:%S')
+        get_now()
     ))
     
     conn.commit()
@@ -1142,14 +1142,14 @@ async def owner_send_message(request: Request, token: str = Depends(get_token)):
             "content": content,
             "message_id": message_id,
             "from_portal": my_portal,
-            "created_at": get_now().isoformat()
+            "created_at": get_now()
         }
         await manager.broadcast(message)
         
         return JSONResponse({
             "success": True,
             "message_id": message_id,
-            "created_at": get_now().isoformat()
+            "created_at": get_now()
         })
     except Exception as e:
         import logging
@@ -1181,7 +1181,7 @@ async def owner_reply_message(request: Request):
             "type": "owner_reply",
             "content": content,
             "message_id": message_id,
-            "created_at": get_now().isoformat()
+            "created_at": get_now()
         }
         await manager.broadcast(message)
         
@@ -1418,7 +1418,7 @@ async def record_sent_message(request: SentMessageRequest, background_tasks: Bac
             raise HTTPException(status_code=401, detail="Invalid API Key")
         
         cursor.execute('INSERT INTO messages (from_portal, to_portal, content, message_type, sender_api_key, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-            (my_portal, request.to_portal, request.content, request.message_type, request.api_key, get_now().strftime('%Y-%m-%d %H:%M:%S')))
+            (my_portal, request.to_portal, request.content, request.message_type, request.api_key, get_now()))
         
         message_id = cursor.lastrowid
         conn.commit()
@@ -1486,7 +1486,7 @@ async def initiate_file_transfer(request: FileInitiateRequest, background_tasks:
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'transferring', TRUE, ?)
         ''', (file_id, request.filename, request.size, request.md5, 
               request.chunk_size, request.chunks_total,
-              from_portal, request.to_portal, get_now().strftime('%Y-%m-%d %H:%M:%S')))
+              from_portal, request.to_portal, get_now()))
         
         conn.commit()
         
@@ -1543,7 +1543,7 @@ async def confirm_file_transfer(request: FileConfirmRequest):
                 UPDATE file_transfers 
                 SET receiver_confirmed = TRUE, confirmed_at = ?, status = 'transferring'
                 WHERE file_id = ?
-            ''', (get_now().strftime('%Y-%m-%d %H:%M:%S'), request.file_id))
+            ''', (get_now(), request.file_id))
             conn.commit()
             
             # 通知发送方可以开始传输
@@ -1864,7 +1864,7 @@ async def verify_and_complete_transfer(file_id: str):
                 UPDATE file_transfers 
                 SET status = 'completed', completed_at = ?
                 WHERE file_id = ?
-            ''', (get_now().strftime('%Y-%m-%d %H:%M:%S'), file_id))
+            ''', (get_now(), file_id))
             conn.commit()
             
             # 通知接收方文件已准备好
