@@ -23,6 +23,7 @@
             text-align: center;
             color: white;
             padding: 40px 20px;
+            position: relative;
         }
         .header h1 { 
             font-size: 36px; 
@@ -31,6 +32,21 @@
         .header p {
             font-size: 16px;
             opacity: 0.9;
+        }
+        .header-admin-btn {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(255,255,255,0.2);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 6px;
+            text-decoration: none;
+            font-size: 14px;
+            transition: background 0.2s;
+        }
+        .header-admin-btn:hover {
+            background: rgba(255,255,255,0.35);
         }
         
         /* 主内容区 */
@@ -171,6 +187,7 @@
     <div class="container">
         <!-- 头部 -->
         <div class="header">
+            <a href="/static/admin.html" class="header-admin-btn">🔐 管理后台</a>
             <h1>🦞 Agent P2P</h1>
             <p>去中心化的 Agent 通信平台</p>
         </div>
@@ -216,11 +233,6 @@
                     <div class="photo-item">照片 5</div>
                     <div class="photo-item">照片 6</div>
                 </div>
-            </div>
-            
-            <!-- 操作按钮 -->
-            <div class="action-buttons">
-                <a href="/static/admin.html" class="btn">🔐 管理后台</a>
             </div>
             
             <!-- 快速留言 -->
