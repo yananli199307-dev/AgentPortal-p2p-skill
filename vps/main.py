@@ -315,6 +315,36 @@ async def admin_login(request: Request):
     })
 
 
+@app.post("/api/auth/change-password")
+async def auth_change_password(request: Request, token: str = Depends(get_token)):
+    """修改管理员密码"""
+    try:
+        body = await request.json()
+        old_password = body.get("old_password", "")
+        new_password = body.get("new_password", "")
+    except:
+        raise HTTPException(status_code=400, detail="请求格式错误")
+    
+    if not new_password or len(new_password) < 6:
+        raise HTTPException(status_code=400, detail="新密码至少 6 位")
+    
+    conn = sqlite3.connect(DATABASE_PATH)
+    cursor = conn.cursor()
+    # 验证旧密码
+    cursor.execute("SELECT value FROM config WHERE key = 'admin_password'")
+    row = cursor.fetchone()
+    if not row or row[0] != old_password:
+        conn.close()
+        raise HTTPException(status_code=400, detail="旧密码不正确")
+    
+    # 更新密码
+    cursor.execute("UPDATE config SET value = ? WHERE key = 'admin_password'", (new_password,))
+    conn.commit()
+    conn.close()
+    
+    return JSONResponse({"status": "success", "message": "密码修改成功"})
+
+
 # API 路由
 
 async def notify_openclaw(content: str, message_type: str = "guest_message"):
